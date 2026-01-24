@@ -161,10 +161,10 @@ final class WhisperEngine {
         body.append(audioData)
         body.append("\r\n".data(using: .utf8)!)
 
-        // Add model (groq uses whisper-large-v3-turbo)
+        // Add model (groq whisper-large-v3 for best accuracy)
         body.append("--\(boundary)\r\n".data(using: .utf8)!)
         body.append("Content-Disposition: form-data; name=\"model\"\r\n\r\n".data(using: .utf8)!)
-        body.append("whisper-large-v3-turbo\r\n".data(using: .utf8)!)
+        body.append("whisper-large-v3\r\n".data(using: .utf8)!)
 
         // Add language if specified
         if let language = config.language {
