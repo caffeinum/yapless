@@ -1,9 +1,14 @@
 import AppKit
+import Carbon.HIToolbox
 
 /// Transparent overlay window for displaying animations
 final class OverlayWindow: NSWindow {
     private let animationConfig: AnimationConfig
     private var animationView: AnimationView?
+    private var eventMonitor: Any?
+
+    /// Called when user clicks or presses Escape/Enter to stop recording
+    var onStopRequested: (() -> Void)?
 
     init(config: AnimationConfig) {
         self.animationConfig = config
@@ -20,6 +25,13 @@ final class OverlayWindow: NSWindow {
 
         setupWindow()
         setupAnimationView()
+        setupEventMonitor()
+    }
+
+    deinit {
+        if let monitor = eventMonitor {
+            NSEvent.removeMonitor(monitor)
+        }
     }
 
     private static func calculateFrame(for config: AnimationConfig) -> NSRect {
@@ -62,11 +74,41 @@ final class OverlayWindow: NSWindow {
         backgroundColor = .clear
         level = .floating
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]
-        ignoresMouseEvents = true
+        ignoresMouseEvents = false  // Accept clicks to stop
         hasShadow = false
 
         // Ensure window appears on all spaces
         isReleasedWhenClosed = false
+    }
+
+    private func setupEventMonitor() {
+        // Monitor for global key events (Escape, Enter, Space)
+        eventMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.keyDown, .leftMouseDown, .rightMouseDown]) { [weak self] event in
+            if event.type == .keyDown {
+                let keyCode = event.keyCode
+                // Escape = 53, Enter = 36, Space = 49
+                if keyCode == 53 || keyCode == 36 || keyCode == 49 {
+                    self?.onStopRequested?()
+                }
+            } else if event.type == .leftMouseDown || event.type == .rightMouseDown {
+                self?.onStopRequested?()
+            }
+        }
+
+        // Also monitor local events (when app is focused)
+        NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .leftMouseDown]) { [weak self] event in
+            if event.type == .keyDown {
+                let keyCode = event.keyCode
+                if keyCode == 53 || keyCode == 36 || keyCode == 49 {
+                    self?.onStopRequested?()
+                    return nil  // Consume the event
+                }
+            } else if event.type == .leftMouseDown {
+                self?.onStopRequested?()
+                return nil
+            }
+            return event
+        }
     }
 
     private func setupAnimationView() {

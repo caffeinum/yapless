@@ -1,5 +1,6 @@
 import AppKit
 import Carbon.HIToolbox
+import UserNotifications
 
 /// Handles output of transcribed text (clipboard, paste, notifications)
 final class OutputHandler {
@@ -81,11 +82,16 @@ final class OutputHandler {
     }
 
     private func showNotification(text: String) {
-        let notification = NSUserNotification()
-        notification.title = "Voice to Text"
-        notification.informativeText = String(text.prefix(100))
-        notification.soundName = nil
+        let content = UNMutableNotificationContent()
+        content.title = "Voice to Text"
+        content.body = String(text.prefix(100))
 
-        NSUserNotificationCenter.default.deliver(notification)
+        let request = UNNotificationRequest(
+            identifier: UUID().uuidString,
+            content: content,
+            trigger: nil
+        )
+
+        UNUserNotificationCenter.current().add(request)
     }
 }

@@ -9,7 +9,7 @@ final class WaveformAnimationView: NSView, AnimationView {
     private var backgroundLayer: CAGradientLayer!
     private var audioLevels: [Float] = Array(repeating: 0, count: 32)
     private var currentIndex = 0
-    private var displayLink: CADisplayLink?
+    private var animationTimer: Timer?
 
     init(config: AnimationConfig) {
         self.config = config

@@ -1,7 +1,6 @@
 import AppKit
 import ArgumentParser
 
-@main
 struct VoiceToText: ParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "voice-to-text",
@@ -55,3 +54,6 @@ struct VoiceToText: ParsableCommand {
         NSApplication.shared.run()
     }
 }
+
+// Entry point
+VoiceToText.main()
