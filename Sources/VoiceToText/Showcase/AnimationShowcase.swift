@@ -135,11 +135,10 @@ enum ShowcaseAnimationStyle {
     case orb, waveform, glow, siri
 }
 
-// MARK: - Orb Animation (Beautiful gradient orb with glow)
+// MARK: - Orb Animation (inspired by metasidd/Orb)
 
 struct OrbShowcaseView: View {
     let audioLevel: CGFloat
-    @State private var phase: Double = 0
 
     private let primary = Color(red: 0.4, green: 0.6, blue: 1.0)
     private let secondary = Color(red: 0.8, green: 0.4, blue: 1.0)
