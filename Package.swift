@@ -4,7 +4,7 @@ import PackageDescription
 let package = Package(
     name: "VoiceToText",
     platforms: [
-        .macOS(.v13)
+        .macOS(.v14)
     ],
     products: [
         .executable(name: "voice-to-text", targets: ["VoiceToText"])
@@ -21,7 +21,7 @@ let package = Package(
             ],
             path: "Sources/VoiceToText",
             swiftSettings: [
-                .unsafeFlags(["-enable-bare-slash-regex"])
+                .unsafeFlags(["-enable-bare-slash-regex", "-parse-as-library"])
             ],
             linkerSettings: [
                 .linkedFramework("AVFoundation"),

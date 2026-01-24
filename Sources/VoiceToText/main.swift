@@ -11,13 +11,13 @@ struct VoiceToText: ParsableCommand {
     @Flag(name: .shortAndLong, help: "Start recording immediately")
     var record = false
 
-    @Flag(name: .shortAndLong, help: "Show animation overlay")
+    @Flag(name: .shortAndLong, inversion: .prefixedNo, help: "Show animation overlay")
     var animate = true
 
     @Flag(name: .shortAndLong, help: "Paste result to active app")
     var paste = false
 
-    @Flag(name: .shortAndLong, help: "Copy result to clipboard")
+    @Flag(name: .shortAndLong, inversion: .prefixedNo, help: "Copy result to clipboard")
     var clipboard = true
 
     @Option(name: .shortAndLong, help: "Whisper model to use (tiny, base, small, medium, large)")
@@ -35,7 +35,15 @@ struct VoiceToText: ParsableCommand {
 
         // Load configuration
         let configPath = config ?? Config.defaultPath
-        let appConfig = (try? Config.load(from: configPath)) ?? Config()
+        print("Loading config from: \(configPath)")
+        let appConfig: Config
+        do {
+            appConfig = try Config.load(from: configPath)
+        } catch {
+            print("Config load error: \(error)")
+            appConfig = Config()
+        }
+        print("Backend: \(appConfig.whisper.backend), API key present: \(appConfig.whisper.groqApiKey != nil)")
 
         // Override animation style if provided via CLI
         var finalConfig = appConfig

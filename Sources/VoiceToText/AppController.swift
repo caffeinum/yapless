@@ -8,6 +8,7 @@ final class AppController {
     private let whisperEngine: WhisperEngine
     private let outputHandler: OutputHandler
     private var overlayWindow: OverlayWindow?
+    private var previousApp: NSRunningApplication?
 
     private var isRecording = false
 
@@ -29,6 +30,9 @@ final class AppController {
     func startRecording() {
         guard !isRecording else { return }
         isRecording = true
+
+        // Save the currently active app so we can restore focus later
+        previousApp = NSWorkspace.shared.frontmostApplication
 
         // Show overlay animation
         if config.animation.style != .cursor || true { // Always show for now
@@ -90,12 +94,20 @@ final class AppController {
     private func handleTranscriptionResult(_ text: String) {
         overlayWindow?.showCompletionState()
 
-        outputHandler.handle(text: text) { [weak self] in
-            self?.hideOverlay()
+        // Restore focus to original app before pasting
+        if let app = previousApp {
+            app.activate(options: [])
+        }
 
-            // Exit after completion
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                NSApplication.shared.terminate(nil)
+        // Small delay to let the app activate
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
+            self?.outputHandler.handle(text: text) {
+                self?.hideOverlay()
+
+                // Exit after completion
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                    NSApplication.shared.terminate(nil)
+                }
             }
         }
     }
