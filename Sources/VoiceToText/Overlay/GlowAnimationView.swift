@@ -163,15 +163,22 @@ final class GlowAnimationView: NSView, AnimationView {
     }
 
     func startProcessingAnimation() {
-        // Rotating highlight effect
+        // Change to orange/yellow for processing
         for (index, glowLayer) in glowLayers.enumerated() {
             glowLayer.removeAllAnimations()
 
+            // Update colors to orange/yellow
+            glowLayer.colors = [
+                NSColor.systemOrange.withAlphaComponent(0.8).cgColor,
+                NSColor.systemYellow.withAlphaComponent(0.4).cgColor,
+                NSColor.clear.cgColor
+            ]
+
             let flash = CABasicAnimation(keyPath: "opacity")
-            flash.fromValue = 0.2
-            flash.toValue = 0.8
-            flash.duration = 0.5
-            flash.beginTime = CACurrentMediaTime() + Double(index) * 0.125
+            flash.fromValue = 0.3
+            flash.toValue = 0.9
+            flash.duration = 0.6
+            flash.beginTime = CACurrentMediaTime() + Double(index) * 0.15
             flash.autoreverses = true
             flash.repeatCount = .infinity
             glowLayer.add(flash, forKey: "processing")
