@@ -37,7 +37,13 @@ struct VoiceToText: ParsableCommand {
         // Load configuration
         let configPath = config ?? Config.defaultPath
         print("Loading config from: \(configPath)")
-        let appConfig = (try? Config.load(from: configPath)) ?? Config()
+        let appConfig: Config
+        do {
+            appConfig = try Config.load(from: configPath)
+        } catch {
+            print("Config load error: \(error)")
+            appConfig = Config()
+        }
         print("Backend: \(appConfig.whisper.backend), API key present: \(appConfig.whisper.groqApiKey != nil)")
 
         // Override animation style if provided via CLI
