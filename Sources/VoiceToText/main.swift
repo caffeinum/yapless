@@ -12,13 +12,13 @@ struct VoiceToText: ParsableCommand {
     @Flag(name: .shortAndLong, help: "Start recording immediately")
     var record = false
 
-    @Flag(name: .shortAndLong, help: "Show animation overlay")
+    @Flag(name: .shortAndLong, inversion: .prefixedNo, help: "Show animation overlay")
     var animate = true
 
     @Flag(name: .shortAndLong, help: "Paste result to active app")
     var paste = false
 
-    @Flag(name: .shortAndLong, help: "Copy result to clipboard")
+    @Flag(name: .shortAndLong, inversion: .prefixedNo, help: "Copy result to clipboard")
     var clipboard = true
 
     @Option(name: .shortAndLong, help: "Whisper model to use (tiny, base, small, medium, large)")

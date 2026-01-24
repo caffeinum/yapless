@@ -134,9 +134,11 @@ final class WhisperEngine {
 
     private func findWhisperBinary() -> String? {
         let possiblePaths = [
+            "/opt/homebrew/bin/whisper",
             "/opt/homebrew/bin/whisper-cpp",
+            "/usr/local/bin/whisper",
             "/usr/local/bin/whisper-cpp",
-            "/opt/homebrew/bin/main",  // whisper.cpp default binary name
+            "/opt/homebrew/bin/main",
             "/usr/local/bin/main"
         ]
 
@@ -145,9 +147,11 @@ final class WhisperEngine {
         let pathDirs = pathEnv.split(separator: ":").map(String.init)
 
         for dir in pathDirs {
-            let whisperPath = "\(dir)/whisper-cpp"
-            if FileManager.default.fileExists(atPath: whisperPath) {
-                return whisperPath
+            for name in ["whisper", "whisper-cpp"] {
+                let whisperPath = "\(dir)/\(name)"
+                if FileManager.default.fileExists(atPath: whisperPath) {
+                    return whisperPath
+                }
             }
         }
 
