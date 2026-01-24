@@ -30,7 +30,19 @@ struct VoiceToText: ParsableCommand {
     @Option(name: .long, help: "Path to config file")
     var config: String?
 
+    @Flag(name: .long, help: "Show animation showcase window")
+    var showcase = false
+
     mutating func run() throws {
+        // Show showcase if requested
+        if showcase {
+            NSApplication.shared.setActivationPolicy(.regular)
+            let showcaseController = ShowcaseWindowController()
+            showcaseController.show()
+            NSApplication.shared.run()
+            return
+        }
+
         // Hide from Dock and Menu Bar
         NSApplication.shared.setActivationPolicy(.accessory)
 
