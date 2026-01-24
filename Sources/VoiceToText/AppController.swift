@@ -59,6 +59,9 @@ final class AppController {
 
     private func showOverlay() {
         overlayWindow = OverlayWindow(config: config.animation)
+        overlayWindow?.onStopRequested = { [weak self] in
+            self?.stopRecording()
+        }
         overlayWindow?.showRecordingState()
     }
 

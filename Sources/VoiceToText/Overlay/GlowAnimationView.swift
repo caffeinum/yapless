@@ -6,6 +6,7 @@ final class GlowAnimationView: NSView, AnimationView {
     let config: AnimationConfig
 
     private var glowLayers: [CAGradientLayer] = []
+    private var stopButton: NSView?
     private var currentAudioLevel: Float = 0
 
     init(config: AnimationConfig) {
@@ -13,6 +14,7 @@ final class GlowAnimationView: NSView, AnimationView {
         super.init(frame: .zero)
         wantsLayer = true
         setupLayers()
+        setupStopButton()
     }
 
     required init?(coder: NSCoder) {
@@ -49,9 +51,36 @@ final class GlowAnimationView: NSView, AnimationView {
         }
     }
 
+    private func setupStopButton() {
+        let buttonSize: CGFloat = 60
+        let button = NSView(frame: NSRect(x: 0, y: 0, width: buttonSize, height: buttonSize))
+        button.wantsLayer = true
+        button.layer?.cornerRadius = buttonSize / 2
+        button.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.6).cgColor
+        button.layer?.borderColor = NSColor(hex: config.primaryColor)?.cgColor ?? NSColor.systemBlue.cgColor
+        button.layer?.borderWidth = 2
+
+        // Stop icon (square)
+        let stopIcon = NSView(frame: NSRect(x: 18, y: 18, width: 24, height: 24))
+        stopIcon.wantsLayer = true
+        stopIcon.layer?.cornerRadius = 4
+        stopIcon.layer?.backgroundColor = NSColor.white.cgColor
+        button.addSubview(stopIcon)
+
+        addSubview(button)
+        self.stopButton = button
+    }
+
     override func layout() {
         super.layout()
         updateLayerFrames()
+
+        // Center the stop button
+        if let button = stopButton {
+            let x = (bounds.width - button.frame.width) / 2
+            let y = (bounds.height - button.frame.height) / 2
+            button.frame.origin = NSPoint(x: x, y: y)
+        }
     }
 
     private func updateLayerFrames() {
@@ -122,27 +151,15 @@ final class GlowAnimationView: NSView, AnimationView {
     }
 
     func startRecordingAnimation() {
-        // Fade in all edges
-        for (index, glowLayer) in glowLayers.enumerated() {
-            let fadeIn = CABasicAnimation(keyPath: "opacity")
-            fadeIn.fromValue = 0
-            fadeIn.toValue = 0.5
-            fadeIn.duration = 0.3
-            fadeIn.beginTime = CACurrentMediaTime() + Double(index) * 0.1
-            fadeIn.fillMode = .forwards
-            fadeIn.isRemovedOnCompletion = false
-            glowLayer.add(fadeIn, forKey: "fadeIn")
+        // Fade in all edges with staggered timing
+        CATransaction.begin()
+        CATransaction.setAnimationDuration(0.3)
 
-            // Pulsing animation
-            let pulse = CABasicAnimation(keyPath: "opacity")
-            pulse.fromValue = 0.3
-            pulse.toValue = 0.6
-            pulse.duration = 1.0
-            pulse.autoreverses = true
-            pulse.repeatCount = .infinity
-            pulse.beginTime = CACurrentMediaTime() + 0.3
-            glowLayer.add(pulse, forKey: "pulse")
+        for glowLayer in glowLayers {
+            glowLayer.opacity = 0.4
         }
+
+        CATransaction.commit()
     }
 
     func startProcessingAnimation() {

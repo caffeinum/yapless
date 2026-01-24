@@ -17,7 +17,7 @@ enum AnimationStyle: String, Codable, CaseIterable {
 }
 
 struct AnimationConfig: Codable {
-    var style: AnimationStyle = .orb
+    var style: AnimationStyle = .glow
     var primaryColor: String = "#007AFF"  // Apple Blue
     var secondaryColor: String = "#5856D6" // Purple accent
     var opacity: Double = 0.9
@@ -32,13 +32,22 @@ struct AnimationConfig: Codable {
     }
 }
 
+enum TranscriptionBackend: String, Codable {
+    case auto       // Auto-detect best available
+    case groq       // Groq API (fastest, cloud)
+    case openai     // OpenAI Whisper API (cloud)
+    case local      // Local whisper (openai-whisper, whisper-cpp, whisperkit)
+}
+
 struct WhisperConfig: Codable {
+    var backend: TranscriptionBackend = .auto
     var model: String = "base"
     var language: String? = nil  // Auto-detect if nil
     var translateToEnglish: Bool = false
     var vadEnabled: Bool = true  // Voice activity detection
     var vadThreshold: Double = 0.6
     var modelPath: String? = nil  // Custom model path, uses default if nil
+    var groqApiKey: String? = nil  // Groq API key, or use GROQ_API_KEY env var
 }
 
 struct OutputConfig: Codable {
