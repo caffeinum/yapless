@@ -573,11 +573,11 @@ struct SiriAnimationContent: View {
                 let level = model.smoothedLevel  // use smoothed level
 
                 ZStack {
-                    // Gradient shadow - 0.5 black at bottom, transparent at top
+                    // Gradient shadow - 0.7 black at bottom, transparent at top
                     LinearGradient(
                         colors: [
                             Color.black.opacity(0),
-                            Color.black.opacity(0.5)
+                            Color.black.opacity(0.7)
                         ],
                         startPoint: .top,
                         endPoint: .bottom
@@ -641,7 +641,8 @@ struct SiriWaveLine: View {
         let amp: CGFloat = isAnimating ? 20 + CGFloat(sin(time * 2)) * 10 : (15 + audioLevel * 70) * (1.0 - CGFloat(index) * 0.1)
         let freq: CGFloat = 0.02 + CGFloat(index) * 0.005
         let opacity: Double = 0.75 - Double(index) * 0.1
-        let lineWidth: CGFloat = 3.5 - CGFloat(index) * 0.4
+        let thicknessFactor: CGFloat = [1.0, 2.5, 1.3, 2.0][index % 4]
+        let lineWidth: CGFloat = (3.5 - CGFloat(index) * 0.4) * thicknessFactor
 
         SiriWaveShape(phase: phase, amplitude: amp, frequency: freq)
             .stroke(displayColor.opacity(opacity), lineWidth: lineWidth)
