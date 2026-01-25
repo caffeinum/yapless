@@ -573,13 +573,11 @@ struct SiriAnimationContent: View {
                 let level = model.smoothedLevel  // use smoothed level
 
                 ZStack {
-                    // Gradient shadow background - black 0.3 in middle, transparent at edges
+                    // Gradient shadow - 0.5 black at bottom, transparent at top
                     LinearGradient(
                         colors: [
                             Color.black.opacity(0),
-                            Color.black.opacity(0.3),
-                            Color.black.opacity(0.3),
-                            Color.black.opacity(0)
+                            Color.black.opacity(0.5)
                         ],
                         startPoint: .top,
                         endPoint: .bottom
