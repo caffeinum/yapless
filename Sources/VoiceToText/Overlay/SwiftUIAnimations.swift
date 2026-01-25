@@ -638,7 +638,10 @@ struct SiriWaveLine: View {
         let speed: Double = isAnimating ? 3.0 : 0.5
         let phase = time * speed * direction + Double(index) * 0.6
 
-        let amp: CGFloat = isAnimating ? 20 + CGFloat(sin(time * 2)) * 10 : (15 + audioLevel * 70) * (1.0 - CGFloat(index) * 0.1)
+        // Very steep curve - need loud audio to peak
+        let thresholded = max(0, audioLevel - 0.15) / 0.85  // ignore bottom 15%
+        let curved = pow(thresholded, 2.5)  // very steep - hard to reach peak
+        let amp: CGFloat = isAnimating ? 20 + CGFloat(sin(time * 2)) * 10 : (15 + curved * 55) * (1.0 - CGFloat(index) * 0.1)
         let freq: CGFloat = 0.02 + CGFloat(index) * 0.005
         let opacity: Double = 0.75 - Double(index) * 0.1
         let thicknessFactor: CGFloat = [1.0, 2.5, 1.3, 2.0][index % 4]
