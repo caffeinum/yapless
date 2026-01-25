@@ -568,7 +568,7 @@ struct SiriAnimationContent: View {
 
     var body: some View {
         GeometryReader { geo in
-            TimelineView(.animation(minimumInterval: 0.033)) { timeline in
+            TimelineView(.animation) { timeline in  // 60fps
                 let t = timeline.date.timeIntervalSinceReferenceDate
                 let level = model.smoothedLevel  // use smoothed level
 
@@ -616,33 +616,37 @@ struct SiriWaveLine: View {
     let color: Color
     let state: AnimationState
 
-    // Processing colors (orange/yellow)
-    private let processingColors: [Color] = [
-        Color.orange,
-        Color.yellow,
-        Color.orange.opacity(0.8),
-        Color.yellow.opacity(0.8)
-    ]
+    private var displayColor: Color {
+        switch state {
+        case .complete:
+            let colors = [Color.green, Color.mint, Color.green, Color.mint]
+            return colors[index % colors.count]
+        case .processing:
+            let colors = [Color.orange, Color.yellow, Color.orange, Color.yellow]
+            return colors[index % colors.count]
+        case .recording:
+            return color
+        }
+    }
+
+    private var isAnimating: Bool {
+        state == .processing || state == .complete
+    }
 
     var body: some View {
-        let isProcessing = state == .processing
+        // Always use time-based phase to avoid jumps - just different speeds
+        // Alternate direction: even lines flow right, odd lines flow left
+        let direction: Double = index % 2 == 0 ? 1.0 : -1.0
+        let speed: Double = isAnimating ? 3.0 : 0.5
+        let phase = time * speed * direction + Double(index) * 0.6
 
-        // Flow during processing, pulsate during recording
-        let phase = isProcessing
-            ? time * 3 + Double(index) * 0.6  // flowing during transcription
-            : Double(index) * 0.5  // static during recording
-
-        let amp = isProcessing
-            ? 20 + sin(time * 2) * 10  // gentle wave during processing
-            : (15 + audioLevel * 70) * (1.0 - CGFloat(index) * 0.1)
-
-        let freq = 0.02 + CGFloat(index) * 0.005
-
-        // Use orange colors during processing
-        let displayColor = isProcessing ? processingColors[index % processingColors.count] : color
+        let amp: CGFloat = isAnimating ? 20 + CGFloat(sin(time * 2)) * 10 : (15 + audioLevel * 70) * (1.0 - CGFloat(index) * 0.1)
+        let freq: CGFloat = 0.02 + CGFloat(index) * 0.005
+        let opacity: Double = 0.75 - Double(index) * 0.1
+        let lineWidth: CGFloat = 3.5 - CGFloat(index) * 0.4
 
         SiriWaveShape(phase: phase, amplitude: amp, frequency: freq)
-            .stroke(displayColor.opacity(0.75 - Double(index) * 0.1), lineWidth: 3.5 - CGFloat(index) * 0.4)
+            .stroke(displayColor.opacity(opacity), lineWidth: lineWidth)
     }
 }
 
