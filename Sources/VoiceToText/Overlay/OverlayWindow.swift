@@ -1,4 +1,5 @@
 import AppKit
+import Carbon.HIToolbox
 
 /// Transparent overlay window for displaying animations
 final class OverlayWindow: NSWindow {
@@ -6,6 +7,8 @@ final class OverlayWindow: NSWindow {
     private var animationView: AnimationView?
     private var keyMonitor: Any?
     private var clickMonitor: Any?
+    private var eventTap: CFMachPort?
+    private var runLoopSource: CFRunLoopSource?
 
     /// Called when user clicks or presses enter/space to stop recording
     var onStopRequested: (() -> Void)?
@@ -102,19 +105,15 @@ final class OverlayWindow: NSWindow {
     }
 
     private func setupInputMonitors() {
-        // Global key monitor for enter/space (requires accessibility)
-        keyMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            if event.keyCode == 36 || event.keyCode == 49 || event.keyCode == 53 {
-                self?.onStopRequested?()
-            }
-        }
+        // Use CGEvent tap to intercept AND block keyboard events
+        setupEventTap()
 
         // Global click monitor (requires accessibility)
         clickMonitor = NSEvent.addGlobalMonitorForEvents(matching: .leftMouseDown) { [weak self] _ in
             self?.onStopRequested?()
         }
 
-        // Local monitors work without accessibility
+        // Local monitors as fallback
         NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             if event.keyCode == 36 || event.keyCode == 49 || event.keyCode == 53 {
                 self?.onStopRequested?()
@@ -129,6 +128,51 @@ final class OverlayWindow: NSWindow {
         }
     }
 
+    private func setupEventTap() {
+        // Store self pointer for callback
+        let refcon = Unmanaged.passUnretained(self).toOpaque()
+
+        // Create event tap to intercept keyboard events
+        let eventMask = (1 << CGEventType.keyDown.rawValue)
+
+        eventTap = CGEvent.tapCreate(
+            tap: .cgSessionEventTap,
+            place: .headInsertEventTap,
+            options: .defaultTap,
+            eventsOfInterest: CGEventMask(eventMask),
+            callback: { (proxy, type, event, refcon) -> Unmanaged<CGEvent>? in
+                guard let refcon = refcon else { return Unmanaged.passRetained(event) }
+
+                let window = Unmanaged<OverlayWindow>.fromOpaque(refcon).takeUnretainedValue()
+                let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
+
+                // Enter (36), Space (49), Escape (53) - stop recording and block event
+                if keyCode == 36 || keyCode == 49 || keyCode == 53 {
+                    DispatchQueue.main.async {
+                        window.onStopRequested?()
+                    }
+                    return nil  // Block the event
+                }
+
+                // Block all other key events during recording too
+                return nil
+            },
+            userInfo: refcon
+        )
+
+        guard let eventTap = eventTap else {
+            print("Failed to create event tap - accessibility permission may be needed")
+            return
+        }
+
+        // Add to run loop
+        runLoopSource = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, eventTap, 0)
+        if let runLoopSource = runLoopSource {
+            CFRunLoopAddSource(CFRunLoopGetCurrent(), runLoopSource, .commonModes)
+            CGEvent.tapEnable(tap: eventTap, enable: true)
+        }
+    }
+
     private func removeInputMonitors() {
         if let monitor = keyMonitor {
             NSEvent.removeMonitor(monitor)
@@ -137,6 +181,16 @@ final class OverlayWindow: NSWindow {
         if let monitor = clickMonitor {
             NSEvent.removeMonitor(monitor)
             clickMonitor = nil
+        }
+
+        // Clean up event tap
+        if let eventTap = eventTap {
+            CGEvent.tapEnable(tap: eventTap, enable: false)
+            self.eventTap = nil
+        }
+        if let runLoopSource = runLoopSource {
+            CFRunLoopRemoveSource(CFRunLoopGetCurrent(), runLoopSource, .commonModes)
+            self.runLoopSource = nil
         }
     }
 
@@ -187,6 +241,14 @@ final class OverlayWindow: NSWindow {
 
     func showCompletionState() {
         animationView?.showCompletionAnimation()
+        releaseKeyboard()  // Allow keystrokes again before paste
+    }
+
+    /// Release keyboard control to allow keystrokes to pass through
+    func releaseKeyboard() {
+        if let eventTap = eventTap {
+            CGEvent.tapEnable(tap: eventTap, enable: false)
+        }
     }
 
     func animateCompletion(completion: @escaping () -> Void) {
