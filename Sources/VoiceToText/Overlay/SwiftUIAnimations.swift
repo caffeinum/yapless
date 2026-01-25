@@ -616,14 +616,33 @@ struct SiriWaveLine: View {
     let color: Color
     let state: AnimationState
 
+    // Processing colors (orange/yellow)
+    private let processingColors: [Color] = [
+        Color.orange,
+        Color.yellow,
+        Color.orange.opacity(0.8),
+        Color.yellow.opacity(0.8)
+    ]
+
     var body: some View {
-        // Pulsate based on audio, minimal flow
-        let phase = Double(index) * 0.5  // static offset per line, no time-based flow
-        let amp = state == .processing ? 15 : (15 + audioLevel * 70) * (1.0 - CGFloat(index) * 0.1)
+        let isProcessing = state == .processing
+
+        // Flow during processing, pulsate during recording
+        let phase = isProcessing
+            ? time * 3 + Double(index) * 0.6  // flowing during transcription
+            : Double(index) * 0.5  // static during recording
+
+        let amp = isProcessing
+            ? 20 + sin(time * 2) * 10  // gentle wave during processing
+            : (15 + audioLevel * 70) * (1.0 - CGFloat(index) * 0.1)
+
         let freq = 0.02 + CGFloat(index) * 0.005
 
+        // Use orange colors during processing
+        let displayColor = isProcessing ? processingColors[index % processingColors.count] : color
+
         SiriWaveShape(phase: phase, amplitude: amp, frequency: freq)
-            .stroke(color.opacity(0.75 - Double(index) * 0.1), lineWidth: 3.5 - CGFloat(index) * 0.4)
+            .stroke(displayColor.opacity(0.75 - Double(index) * 0.1), lineWidth: 3.5 - CGFloat(index) * 0.4)
     }
 }
 
