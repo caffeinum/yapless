@@ -2,16 +2,16 @@
 
 # Required parameters:
 # @raycast.schemaVersion 1
-# @raycast.title Voice Input
+# @raycast.title Yapless
 # @raycast.mode silent
 
 # Optional parameters:
 # @raycast.icon 🎤
-# @raycast.packageName Voice to Text
+# @raycast.packageName Yapless
 
 # Documentation:
-# @raycast.description Start voice recording and transcribe to text
+# @raycast.description Start voice recording and paste transcription
 # @raycast.author caffeinum
 # @raycast.authorURL https://github.com/caffeinum
 
-~/.local/bin/voice-to-text --record --paste
+~/.local/bin/yapless --record --paste

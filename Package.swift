@@ -2,12 +2,12 @@
 import PackageDescription
 
 let package = Package(
-    name: "VoiceToText",
+    name: "Yapless",
     platforms: [
         .macOS(.v14)
     ],
     products: [
-        .executable(name: "voice-to-text", targets: ["VoiceToText"])
+        .executable(name: "yapless", targets: ["VoiceToText"])
     ],
     dependencies: [
         // Command line argument parsing

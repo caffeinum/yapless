@@ -1,116 +1,103 @@
-# Voice to Text
+# yapless
 
-Lightweight voice-to-text for macOS with beautiful animations. No dock icon, no menu bar clutter – just pure voice input activated via Raycast.
+voice-to-text that stays out of your way.
 
-## Features
+no menu bar icon. no dock clutter. no background daemon to babysit. just hit a hotkey, talk, and text appears in your active app.
 
-- 🎤 **Local Whisper processing** - All transcription happens on-device using whisper.cpp
-- ✨ **Beautiful animations** - Choose from orb, waveform, or screen edge glow effects
-- 🚀 **Fast startup** - Under 200ms from trigger to recording
-- 🔒 **Privacy-first** - No data leaves your machine
-- ⌨️ **Raycast integration** - Quick activation with customizable hotkey
+## why yapless
 
-## Installation
+most voice tools want to live in your system tray 24/7. they want windows, preferences panes, and "is it running?" anxiety.
 
-### Prerequisites
+yapless is different:
+- **zero ui** - no icons, no windows, nothing to manage
+- **instant-on** - works the first time, every time (just needs mic access once)
+- **visual feedback** - animated overlay so you know it's listening
+- **then it's gone** - transcribes, pastes, exits
 
-1. Install whisper.cpp:
-```bash
-brew install whisper-cpp
-```
+open source alternative to superwhisper, wispr flow, and macwhisper.
 
-2. Download a Whisper model:
-```bash
-mkdir -p ~/.local/share/whisper
-cd ~/.local/share/whisper
-curl -LO https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin
-```
-
-### Build from source
+## install
 
 ```bash
-git clone https://github.com/caffeinum/voice-to-text.git
-cd voice-to-text
+# clone and build
+git clone https://github.com/caffeinum/yapless.git
+cd yapless
 swift build -c release
-cp .build/release/voice-to-text ~/.local/bin/
+cp .build/release/yapless ~/.local/bin/
+
+# add raycast script command
+# Extensions → Script Commands → Add the raycast/ folder
+# assign a hotkey (e.g., ⌥ + Space)
 ```
 
-### Raycast Setup
+## backends
 
-1. Open Raycast
-2. Go to Extensions → Script Commands
-3. Add the `raycast/` folder from this repo
-4. Assign a hotkey (e.g., `⌥ + Space`)
+yapless auto-detects what you have:
 
-## Usage
+| backend | setup | speed |
+|---------|-------|-------|
+| **groq** (cloud) | set `GROQ_API_KEY` | fastest |
+| **whisper.cpp** (local) | `brew install whisper-cpp` | fast |
+| **openai-whisper** (local) | `pip install openai-whisper` | medium |
+| **whisperkit** (local) | apple native | medium |
+
+groq is recommended - free tier, fast, accurate. local options for offline/privacy.
+
+## usage
 
 ```bash
-# Start recording (default: paste to active app)
-voice-to-text --record --paste
+# start recording, paste to active app
+yapless --record --paste
 
-# Copy to clipboard only
-voice-to-text --record --clipboard --no-paste
+# clipboard only
+yapless --record --clipboard --no-paste
 
-# Use a specific animation style
-voice-to-text --record --animation-style waveform
-
-# Use a different Whisper model
-voice-to-text --record --model small
+# different animation
+yapless --record --animation-style waveform
 ```
 
-## Configuration
+## config
 
-Create `~/.config/voice-to-text/config.json`:
+`~/.config/yapless/config.json`:
 
 ```json
 {
   "animation": {
     "style": "orb",
-    "primaryColor": "#007AFF",
-    "secondaryColor": "#5856D6",
-    "opacity": 0.9,
-    "size": 120,
     "position": "center"
   },
   "whisper": {
+    "backend": "auto",
     "model": "base",
-    "language": null,
-    "vadEnabled": true
+    "language": null
   },
   "output": {
-    "copyToClipboard": true,
     "pasteToActiveApp": true,
-    "playCompletionSound": true
+    "copyToClipboard": true
   }
 }
 ```
 
-### Animation Styles
+### animations
 
-| Style | Description |
+| style | description |
 |-------|-------------|
-| `orb` | Simple breathing orb that pulses with audio levels |
-| `waveform` | Real-time audio waveform visualization |
-| `glow` | Screen edge glow effect (Dynamic Island style) |
-| `cursor` | Small indicator that follows the cursor |
+| `orb` | breathing orb that pulses with audio |
+| `waveform` | real-time audio visualization |
+| `glow` | screen edge glow (dynamic island vibes) |
 
-### Whisper Models
+## how it works
 
-| Model | Size | Speed | Accuracy |
-|-------|------|-------|----------|
-| `tiny` | 75 MB | Fastest | Basic |
-| `base` | 142 MB | Fast | Good |
-| `small` | 466 MB | Medium | Better |
-| `medium` | 1.5 GB | Slow | Great |
-| `large` | 2.9 GB | Slowest | Best |
+1. raycast triggers `yapless --record`
+2. overlay appears, recording starts
+3. you talk
+4. click overlay or hit hotkey again to stop
+5. audio goes to whisper (cloud or local)
+6. text pastes into your active app
+7. yapless exits
 
-## Performance
+no daemon. no persistence. summoned when needed, gone when done.
 
-- Startup to recording: < 200ms
-- Idle memory: < 20MB
-- Recording memory: < 100MB (excluding Whisper model)
-- Transcription: Real-time or faster on Apple Silicon
-
-## License
+## license
 
 MIT
