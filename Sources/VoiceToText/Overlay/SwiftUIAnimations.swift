@@ -254,10 +254,10 @@ final class NewWaveformAnimationView: NSView, AnimationView {
 struct WaveformAnimationContent: View {
     @ObservedObject var model: AnimationModel
     let config: AnimationConfig
-    private let barCount = 20
+    private let barCount = 32
 
     private var barColor: Color {
-        Color(nsColor: NSColor(hex: config.primaryColor) ?? .systemGreen)
+        Color(nsColor: NSColor(hex: config.primaryColor) ?? .systemBlue)
     }
 
     var body: some View {
@@ -267,22 +267,18 @@ struct WaveformAnimationContent: View {
                 let level = model.audioLevel
 
                 ZStack {
-                    // Background
-                    RoundedRectangle(cornerRadius: 16)
-                        .fill(Color.black.opacity(0.6))
-
-                    HStack(spacing: 3) {
+                    HStack(spacing: 2) {
                         ForEach(0..<barCount, id: \.self) { i in
                             WaveformBar(
                                 index: i,
                                 time: t,
                                 audioLevel: level,
                                 color: barColor,
-                                state: model.state
+                                state: model.state,
+                                maxHeight: geo.size.height * 0.9
                             )
                         }
                     }
-                    .padding(.horizontal, 15)
 
                     // Processing overlay
                     if model.state == .processing {
@@ -293,8 +289,7 @@ struct WaveformAnimationContent: View {
 
                     // Completion flash
                     if model.state == .complete {
-                        RoundedRectangle(cornerRadius: 16)
-                            .fill(Color.green.opacity(0.3))
+                        Color.green.opacity(0.3)
                     }
                 }
             }
@@ -308,15 +303,16 @@ struct WaveformBar: View {
     let audioLevel: CGFloat
     let color: Color
     let state: AnimationState
+    var maxHeight: CGFloat = 100
 
     var body: some View {
-        let wave = sin(Double(index) * 0.5 + time * 5) * 0.5 + 0.5
-        let baseHeight: CGFloat = state == .processing ? 0.3 : (0.2 + CGFloat(wave) * 0.6 * (0.4 + audioLevel))
-        let height = max(8, baseHeight * 80)
+        let wave = sin(Double(index) * 0.4 + time * 4) * 0.5 + 0.5
+        let baseHeight: CGFloat = state == .processing ? 0.3 : (0.15 + CGFloat(wave) * 0.7 * (0.3 + audioLevel))
+        let height = max(4, baseHeight * maxHeight)
 
-        RoundedRectangle(cornerRadius: 2)
-            .fill(color.opacity(0.5 + wave * 0.5))
-            .frame(width: 4, height: height)
+        RoundedRectangle(cornerRadius: 3)
+            .fill(color.opacity(0.6 + wave * 0.4))
+            .frame(width: 3, height: height)
     }
 }
 
