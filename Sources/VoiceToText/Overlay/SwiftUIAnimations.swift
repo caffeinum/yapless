@@ -573,11 +573,7 @@ struct SiriAnimationContent: View {
                 let level = model.audioLevel
 
                 ZStack {
-                    // Background
-                    RoundedRectangle(cornerRadius: 16)
-                        .fill(Color.black.opacity(0.7))
-
-                    // Wave lines
+                    // Wave lines (no background)
                     ForEach(0..<4, id: \.self) { index in
                         SiriWaveLine(
                             time: t,
@@ -596,11 +592,7 @@ struct SiriAnimationContent: View {
                             .scaleEffect(0.8)
                     }
 
-                    // Completion flash
-                    if model.state == .complete {
-                        RoundedRectangle(cornerRadius: 16)
-                            .fill(Color.green.opacity(0.3))
-                    }
+                    // Completion - waves turn green (handled in SiriWaveLine)
                 }
             }
         }
