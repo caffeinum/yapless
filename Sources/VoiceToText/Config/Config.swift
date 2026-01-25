@@ -4,13 +4,15 @@ enum AnimationStyle: String, Codable, CaseIterable {
     case orb = "orb"
     case waveform = "waveform"
     case glow = "glow"
+    case siri = "siri"
     case cursor = "cursor"
 
     var description: String {
         switch self {
-        case .orb: return "Simple breathing orb"
-        case .waveform: return "Real-time audio waveform"
-        case .glow: return "Screen edge glow effect"
+        case .orb: return "Gradient orb with floating blobs"
+        case .waveform: return "Real-time audio waveform bars"
+        case .glow: return "Apple Intelligence style border glow"
+        case .siri: return "Multi-colored Siri wave lines"
         case .cursor: return "Cursor-following indicator"
         }
     }

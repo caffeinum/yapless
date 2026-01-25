@@ -149,13 +149,15 @@ final class OverlayWindow: NSWindow {
 
         switch animationConfig.style {
         case .orb:
-            animationView = OrbAnimationView(config: animationConfig)
+            animationView = NewOrbAnimationView(config: animationConfig)
         case .waveform:
-            animationView = WaveformAnimationView(config: animationConfig)
+            animationView = NewWaveformAnimationView(config: animationConfig)
         case .glow:
-            animationView = GlowAnimationView(config: animationConfig)
+            animationView = NewGlowAnimationView(config: animationConfig)
+        case .siri:
+            animationView = NewSiriAnimationView(config: animationConfig)
         case .cursor:
-            animationView = OrbAnimationView(config: animationConfig)  // Fallback to orb for now
+            animationView = NewOrbAnimationView(config: animationConfig)  // Orb follows cursor
         }
 
         animationView.frame = contentView?.bounds ?? .zero
