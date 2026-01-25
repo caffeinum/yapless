@@ -206,7 +206,7 @@ struct OrbAnimationContent: View {
     }
 }
 
-// MARK: - New Waveform Animation View
+// MARK: - New Waveform Animation View (Style 5: Physics-based bars)
 
 final class NewWaveformAnimationView: NSView, AnimationView {
     let config: AnimationConfig
@@ -215,7 +215,10 @@ final class NewWaveformAnimationView: NSView, AnimationView {
 
     init(config: AnimationConfig) {
         self.config = config
-        self.hostingView = NSHostingView(rootView: WaveformAnimationContent(model: model, config: config))
+        self.hostingView = NSHostingView(rootView: WaveformAnimationContent(
+            model: model,
+            config: config
+        ))
 
         super.init(frame: .zero)
 
@@ -254,67 +257,78 @@ final class NewWaveformAnimationView: NSView, AnimationView {
 struct WaveformAnimationContent: View {
     @ObservedObject var model: AnimationModel
     let config: AnimationConfig
-    private let barCount = 32
+    private let barCount = 32  // reduced from 40
 
-    private var barColor: Color {
-        Color(nsColor: NSColor(hex: config.primaryColor) ?? .systemBlue)
+    // Cache colors at init
+    private let barColor: Color
+    private let secondaryColor: Color
+
+    init(model: AnimationModel, config: AnimationConfig) {
+        self.model = model
+        self.config = config
+        self.barColor = Color(nsColor: NSColor(hex: config.primaryColor) ?? .systemBlue)
+        self.secondaryColor = Color(nsColor: NSColor(hex: config.secondaryColor) ?? .systemPurple)
     }
 
     var body: some View {
-        GeometryReader { geo in
-            TimelineView(.animation(minimumInterval: 0.016)) { timeline in
-                let t = timeline.date.timeIntervalSinceReferenceDate
-                let level = model.audioLevel
+        TimelineView(.animation) { timeline in
+            let t = timeline.date.timeIntervalSinceReferenceDate
+            let level = model.audioLevel
 
-                ZStack {
-                    HStack(spacing: 2) {
-                        ForEach(0..<barCount, id: \.self) { i in
-                            WaveformBar(
-                                index: i,
-                                time: t,
-                                audioLevel: level,
-                                color: barColor,
-                                state: model.state,
-                                maxHeight: geo.size.height * 0.9
-                            )
-                        }
-                    }
-
-                    // Processing overlay
-                    if model.state == .processing {
-                        ProgressView()
-                            .progressViewStyle(.circular)
-                            .scaleEffect(0.8)
-                    }
-
-                    // Completion flash
-                    if model.state == .complete {
-                        Color.green.opacity(0.3)
-                    }
-                }
+            Canvas { context, size in
+                drawWaveform(context: context, size: size, time: t, level: level)
             }
+        }
+    }
+
+    private func drawWaveform(context: GraphicsContext, size: CGSize, time: Double, level: CGFloat) {
+        let centerY = size.height / 2
+        let barWidth: CGFloat = 8
+        let gap: CGFloat = 5
+        // Use less of the width so bars don't reach edges
+        let usableWidth = size.width * 0.85
+        let totalWidth = CGFloat(barCount) * (barWidth + gap) - gap
+        let scale = min(1.0, usableWidth / totalWidth)
+        let actualBarWidth = barWidth * scale
+        let actualGap = gap * scale
+        let actualTotalWidth = CGFloat(barCount) * (actualBarWidth + actualGap) - actualGap
+        let startX = (size.width - actualTotalWidth) / 2
+        let center = CGFloat(barCount) / 2.0
+        let maxHeight = size.height * 0.8
+
+        for i in 0..<barCount {
+            // Strong edge fade - goes to zero at edges
+            let distFromCenter = abs(CGFloat(i) - center) / center
+            let edgeFade = pow(cos(distFromCenter * .pi / 2), 1.5)  // stronger falloff
+
+            // Skip bars that would be invisible
+            if edgeFade < 0.05 { continue }
+
+            // Wave
+            let wave = sin(Double(i) * 0.4 + time * 3) * 0.5 + 0.5
+
+            // Height
+            let height = (10 + CGFloat(wave) * maxHeight * (0.15 + level * 0.85)) * edgeFade
+            let halfHeight = max(3, height / 2)
+
+            let x = startX + CGFloat(i) * (actualBarWidth + actualGap)
+            let opacity = edgeFade * 0.9  // opacity also fades to zero at edges
+
+            // Blend between primary and secondary based on position
+            let colorMix = distFromCenter
+            let blendedColor = colorMix < 0.5 ? barColor.opacity(opacity) : secondaryColor.opacity(opacity)
+
+            // Top bar
+            let topRect = CGRect(x: x, y: centerY - halfHeight, width: actualBarWidth, height: halfHeight)
+            context.fill(RoundedRectangle(cornerRadius: 3).path(in: topRect), with: .color(blendedColor))
+
+            // Bottom bar
+            let bottomRect = CGRect(x: x, y: centerY + 1, width: actualBarWidth, height: halfHeight)
+            context.fill(RoundedRectangle(cornerRadius: 3).path(in: bottomRect), with: .color(blendedColor))
         }
     }
 }
 
-struct WaveformBar: View {
-    let index: Int
-    let time: Double
-    let audioLevel: CGFloat
-    let color: Color
-    let state: AnimationState
-    var maxHeight: CGFloat = 100
-
-    var body: some View {
-        let wave = sin(Double(index) * 0.4 + time * 4) * 0.5 + 0.5
-        let baseHeight: CGFloat = state == .processing ? 0.3 : (0.15 + CGFloat(wave) * 0.7 * (0.3 + audioLevel))
-        let height = max(4, baseHeight * maxHeight)
-
-        RoundedRectangle(cornerRadius: 3)
-            .fill(color.opacity(0.6 + wave * 0.4))
-            .frame(width: 3, height: height)
-    }
-}
 
 // MARK: - New Glow Animation View
 
@@ -513,7 +527,7 @@ struct SiriAnimationContent: View {
 
     var body: some View {
         GeometryReader { geo in
-            TimelineView(.animation(minimumInterval: 0.016)) { timeline in
+            TimelineView(.animation(minimumInterval: 0.033)) { timeline in  // 30fps instead of 60
                 let t = timeline.date.timeIntervalSinceReferenceDate
                 let level = model.audioLevel
 

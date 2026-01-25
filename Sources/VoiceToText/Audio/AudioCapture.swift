@@ -68,7 +68,7 @@ final class AudioCapture {
             // Install tap on input node
             inputNode.installTap(
                 onBus: 0,
-                bufferSize: 1024,
+                bufferSize: 512,  // balanced: ~30 updates/sec at 16kHz
                 format: inputFormat
             ) { [weak self] buffer, _ in
                 self?.processAudioBuffer(buffer)
