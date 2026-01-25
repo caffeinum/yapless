@@ -11,7 +11,11 @@ final class OutputHandler {
     }
 
     /// Handle the transcribed text according to config
-    func handle(text: String, completion: @escaping () -> Void) {
+    /// - Parameters:
+    ///   - text: The transcribed text
+    ///   - pressEnter: Whether to press Enter after pasting (to send in chat apps)
+    ///   - completion: Called when done
+    func handle(text: String, pressEnter: Bool = false, completion: @escaping () -> Void) {
         let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
 
         guard !trimmedText.isEmpty else {
@@ -26,7 +30,7 @@ final class OutputHandler {
 
         // Paste to active app
         if config.pasteToActiveApp {
-            pasteToActiveApp(trimmedText) {
+            pasteToActiveApp(trimmedText, pressEnter: pressEnter) {
                 if self.config.playCompletionSound {
                     self.playCompletionSound()
                 }
@@ -52,11 +56,20 @@ final class OutputHandler {
         print("Copied to clipboard: \(text.prefix(50))...")
     }
 
-    private func pasteToActiveApp(_ text: String, completion: @escaping () -> Void) {
+    private func pasteToActiveApp(_ text: String, pressEnter: Bool, completion: @escaping () -> Void) {
         // Small delay to ensure clipboard is ready
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
             self.simulatePaste()
-            completion()
+
+            if pressEnter {
+                // Longer delay after paste to ensure Cmd key is released
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                    self.simulateEnter()
+                    completion()
+                }
+            } else {
+                completion()
+            }
         }
     }
 
@@ -75,6 +88,22 @@ final class OutputHandler {
         keyUp?.post(tap: .cghidEventTap)
 
         print("Simulated paste")
+    }
+
+    private func simulateEnter() {
+        let source = CGEventSource(stateID: .hidSystemState)
+
+        // Key down for Enter - explicitly clear all modifiers
+        let keyDown = CGEvent(keyboardEventSource: source, virtualKey: CGKeyCode(kVK_Return), keyDown: true)
+        keyDown?.flags = []  // No modifiers
+        keyDown?.post(tap: .cghidEventTap)
+
+        // Key up for Enter
+        let keyUp = CGEvent(keyboardEventSource: source, virtualKey: CGKeyCode(kVK_Return), keyDown: false)
+        keyUp?.flags = []  // No modifiers
+        keyUp?.post(tap: .cghidEventTap)
+
+        print("Simulated enter")
     }
 
     private func playCompletionSound() {

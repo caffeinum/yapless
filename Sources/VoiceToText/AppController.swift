@@ -11,6 +11,7 @@ final class AppController {
     private var previousApp: NSRunningApplication?
 
     private var isRecording = false
+    private var shouldPressEnterAfterPaste = false
 
     init(config: Config) {
         self.config = config
@@ -51,9 +52,10 @@ final class AppController {
         }
     }
 
-    func stopRecording() {
+    func stopRecording(pressEnter: Bool = false) {
         guard isRecording else { return }
         isRecording = false
+        shouldPressEnterAfterPaste = pressEnter
 
         audioCapture.stopRecording()
         overlayWindow?.showProcessingState()
@@ -69,8 +71,8 @@ final class AppController {
 
     private func showOverlay() {
         overlayWindow = OverlayWindow(config: config.animation)
-        overlayWindow?.onStopRequested = { [weak self] in
-            self?.stopRecording()
+        overlayWindow?.onStopRequested = { [weak self] pressEnter in
+            self?.stopRecording(pressEnter: pressEnter)
         }
         overlayWindow?.showRecordingState()
     }
@@ -110,8 +112,9 @@ final class AppController {
 
         // Small delay to let the app activate
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
-            self?.outputHandler.handle(text: text) {
-                self?.hideOverlay()
+            guard let self = self else { return }
+            self.outputHandler.handle(text: text, pressEnter: self.shouldPressEnterAfterPaste) {
+                self.hideOverlay()
 
                 // Exit after completion
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {

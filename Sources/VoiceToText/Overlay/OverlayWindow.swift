@@ -11,7 +11,8 @@ final class OverlayWindow: NSWindow {
     private var runLoopSource: CFRunLoopSource?
 
     /// Called when user clicks or presses enter/space to stop recording
-    var onStopRequested: (() -> Void)?
+    /// Bool indicates whether to press Enter after pasting (true if Enter was pressed)
+    var onStopRequested: ((Bool) -> Void)?
 
     init(config: AnimationConfig) {
         self.animationConfig = config
@@ -92,13 +93,15 @@ final class OverlayWindow: NSWindow {
     override func becomeFirstResponder() -> Bool { true }
 
     override func mouseDown(with event: NSEvent) {
-        onStopRequested?()
+        onStopRequested?(false)  // click = just paste
     }
 
     override func keyDown(with event: NSEvent) {
         // enter (36) or space (49) or escape (53)
-        if event.keyCode == 36 || event.keyCode == 49 || event.keyCode == 53 {
-            onStopRequested?()
+        if event.keyCode == 36 {
+            onStopRequested?(true)  // enter = paste + send
+        } else if event.keyCode == 49 || event.keyCode == 53 {
+            onStopRequested?(false)  // space/escape = just paste
         } else {
             super.keyDown(with: event)
         }
@@ -110,20 +113,23 @@ final class OverlayWindow: NSWindow {
 
         // Global click monitor (requires accessibility)
         clickMonitor = NSEvent.addGlobalMonitorForEvents(matching: .leftMouseDown) { [weak self] _ in
-            self?.onStopRequested?()
+            self?.onStopRequested?(false)
         }
 
         // Local monitors as fallback
         NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            if event.keyCode == 36 || event.keyCode == 49 || event.keyCode == 53 {
-                self?.onStopRequested?()
+            if event.keyCode == 36 {
+                self?.onStopRequested?(true)  // enter = paste + send
+                return nil
+            } else if event.keyCode == 49 || event.keyCode == 53 {
+                self?.onStopRequested?(false)  // space/escape = just paste
                 return nil
             }
             return event
         }
 
         NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { [weak self] event in
-            self?.onStopRequested?()
+            self?.onStopRequested?(false)
             return event
         }
     }
@@ -146,12 +152,20 @@ final class OverlayWindow: NSWindow {
                 let window = Unmanaged<OverlayWindow>.fromOpaque(refcon).takeUnretainedValue()
                 let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
 
-                // Enter (36), Space (49), Escape (53) - stop recording and block event
-                if keyCode == 36 || keyCode == 49 || keyCode == 53 {
+                // Enter (36) - stop and send
+                if keyCode == 36 {
                     DispatchQueue.main.async {
-                        window.onStopRequested?()
+                        window.onStopRequested?(true)
                     }
-                    return nil  // Block the event
+                    return nil
+                }
+
+                // Space (49), Escape (53) - stop without send
+                if keyCode == 49 || keyCode == 53 {
+                    DispatchQueue.main.async {
+                        window.onStopRequested?(false)
+                    }
+                    return nil
                 }
 
                 // Block all other key events during recording too
