@@ -535,7 +535,7 @@ final class NewSiriAnimationView: NSView, AnimationView {
     }
 
     func updateAudioLevel(_ level: Float) {
-        model.audioLevel = CGFloat(level)
+        model.updateAudioLevel(CGFloat(level))  // use smoothed update
     }
 
     func updateSpectrum(_ bands: [Float]) {
@@ -568,12 +568,24 @@ struct SiriAnimationContent: View {
 
     var body: some View {
         GeometryReader { geo in
-            TimelineView(.animation(minimumInterval: 0.033)) { timeline in  // 30fps instead of 60
+            TimelineView(.animation(minimumInterval: 0.033)) { timeline in
                 let t = timeline.date.timeIntervalSinceReferenceDate
-                let level = model.audioLevel
+                let level = model.smoothedLevel  // use smoothed level
 
                 ZStack {
-                    // Wave lines (no background)
+                    // Gradient shadow background - black 0.3 in middle, transparent at edges
+                    LinearGradient(
+                        colors: [
+                            Color.black.opacity(0),
+                            Color.black.opacity(0.3),
+                            Color.black.opacity(0.3),
+                            Color.black.opacity(0)
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+
+                    // Wave lines
                     ForEach(0..<4, id: \.self) { index in
                         SiriWaveLine(
                             time: t,
@@ -591,8 +603,6 @@ struct SiriAnimationContent: View {
                             .progressViewStyle(.circular)
                             .scaleEffect(0.8)
                     }
-
-                    // Completion - waves turn green (handled in SiriWaveLine)
                 }
             }
         }
@@ -607,9 +617,10 @@ struct SiriWaveLine: View {
     let state: AnimationState
 
     var body: some View {
-        let phase = time * 3 + Double(index) * 0.6
-        let amp = state == .processing ? 15 : (20 + audioLevel * 50) * (1.0 - CGFloat(index) * 0.12)
-        let freq = 0.04 + CGFloat(index) * 0.01
+        // Pulsate based on audio, minimal flow
+        let phase = Double(index) * 0.5  // static offset per line, no time-based flow
+        let amp = state == .processing ? 15 : (15 + audioLevel * 70) * (1.0 - CGFloat(index) * 0.1)
+        let freq = 0.02 + CGFloat(index) * 0.005
 
         SiriWaveShape(phase: phase, amplitude: amp, frequency: freq)
             .stroke(color.opacity(0.75 - Double(index) * 0.1), lineWidth: 3.5 - CGFloat(index) * 0.4)

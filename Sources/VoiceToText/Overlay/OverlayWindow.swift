@@ -43,10 +43,10 @@ final class OverlayWindow: NSWindow {
 
         // Siri style - full width, fixed height at bottom
         if config.style == .siri {
-            let height: CGFloat = 100
+            let height: CGFloat = 200
             return NSRect(
                 x: screen.frame.minX,
-                y: screen.visibleFrame.minY + 50,
+                y: screen.visibleFrame.minY,
                 width: screen.frame.width,
                 height: height
             )
