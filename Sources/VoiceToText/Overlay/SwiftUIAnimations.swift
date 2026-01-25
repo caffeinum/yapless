@@ -257,7 +257,7 @@ final class NewWaveformAnimationView: NSView, AnimationView {
 struct WaveformAnimationContent: View {
     @ObservedObject var model: AnimationModel
     let config: AnimationConfig
-    private let barCount = 32  // reduced from 40
+    private let barCount = 28  // more bars for smoother look
 
     // Cache colors at init
     private let barColor: Color
@@ -283,8 +283,8 @@ struct WaveformAnimationContent: View {
 
     private func drawWaveform(context: GraphicsContext, size: CGSize, time: Double, level: CGFloat) {
         let centerY = size.height / 2
-        let barWidth: CGFloat = 8
-        let gap: CGFloat = 5
+        let barWidth: CGFloat = 20
+        let gap: CGFloat = 6
         // Use less of the width so bars don't reach edges
         let usableWidth = size.width * 0.85
         let totalWidth = CGFloat(barCount) * (barWidth + gap) - gap
@@ -294,7 +294,7 @@ struct WaveformAnimationContent: View {
         let actualTotalWidth = CGFloat(barCount) * (actualBarWidth + actualGap) - actualGap
         let startX = (size.width - actualTotalWidth) / 2
         let center = CGFloat(barCount) / 2.0
-        let maxHeight = size.height * 0.8
+        let maxHeight = size.height * 0.95
 
         for i in 0..<barCount {
             // Strong edge fade - goes to zero at edges
@@ -307,24 +307,21 @@ struct WaveformAnimationContent: View {
             // Wave
             let wave = sin(Double(i) * 0.4 + time * 3) * 0.5 + 0.5
 
-            // Height
-            let height = (10 + CGFloat(wave) * maxHeight * (0.15 + level * 0.85)) * edgeFade
-            let halfHeight = max(3, height / 2)
+            // Height - taller bars
+            let height = (12 + CGFloat(wave) * maxHeight * (0.2 + level * 0.8)) * edgeFade
+            let halfHeight = max(4, height / 2)
 
             let x = startX + CGFloat(i) * (actualBarWidth + actualGap)
-            let opacity = edgeFade * 0.9  // opacity also fades to zero at edges
+            let opacity = edgeFade * 0.95
 
             // Blend between primary and secondary based on position
             let colorMix = distFromCenter
             let blendedColor = colorMix < 0.5 ? barColor.opacity(opacity) : secondaryColor.opacity(opacity)
 
-            // Top bar
-            let topRect = CGRect(x: x, y: centerY - halfHeight, width: actualBarWidth, height: halfHeight)
-            context.fill(RoundedRectangle(cornerRadius: 3).path(in: topRect), with: .color(blendedColor))
-
-            // Bottom bar
-            let bottomRect = CGRect(x: x, y: centerY + 1, width: actualBarWidth, height: halfHeight)
-            context.fill(RoundedRectangle(cornerRadius: 3).path(in: bottomRect), with: .color(blendedColor))
+            // Single bar spanning both directions from center
+            let fullHeight = halfHeight * 2
+            let barRect = CGRect(x: x, y: centerY - halfHeight, width: actualBarWidth, height: fullHeight)
+            context.fill(RoundedRectangle(cornerRadius: actualBarWidth / 2).path(in: barRect), with: .color(blendedColor))
         }
     }
 }
