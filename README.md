@@ -4,6 +4,8 @@ voice-to-text that stays out of your way.
 
 no menu bar icon. no dock clutter. no background daemon to babysit. just hit a hotkey, talk, and text appears in your active app.
 
+![yapless siri animation](assets/screenshot-siri.png)
+
 ## why yapless
 
 most voice tools want to live in your system tray 24/7. they want windows, preferences panes, and "is it running?" anxiety.
@@ -85,6 +87,7 @@ yapless --record --animation-style waveform
 | `orb` | breathing orb that pulses with audio |
 | `waveform` | real-time audio visualization |
 | `glow` | screen edge glow (dynamic island vibes) |
+| `siri` | multi-colored wave lines |
 
 ## how it works
 
