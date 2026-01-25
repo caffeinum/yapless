@@ -37,6 +37,9 @@ final class AppController {
         // Save the currently active app so we can restore focus later
         previousApp = NSWorkspace.shared.frontmostApplication
 
+        // Change cursor to indicate recording
+        NSCursor.pointingHand.push()
+
         // Show overlay animation
         if config.animation.style != .cursor || true { // Always show for now
             showOverlay()
@@ -97,6 +100,9 @@ final class AppController {
     private func handleTranscriptionResult(_ text: String) {
         overlayWindow?.showCompletionState()
 
+        // Restore cursor
+        NSCursor.pop()
+
         // Restore focus to original app before pasting
         if let app = previousApp {
             app.activate(options: [])
@@ -117,6 +123,7 @@ final class AppController {
 
     private func handleTranscriptionError(_ error: Error) {
         print("Transcription error: \(error.localizedDescription)")
+        NSCursor.pop()
         hideOverlay()
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {

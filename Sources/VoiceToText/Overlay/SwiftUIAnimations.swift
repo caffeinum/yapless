@@ -423,7 +423,7 @@ final class NewGlowAnimationView: NSView, AnimationView {
     }
 
     func updateAudioLevel(_ level: Float) {
-        model.audioLevel = CGFloat(level)
+        model.updateAudioLevel(CGFloat(level))  // use smoothed update
     }
 
     func updateSpectrum(_ bands: [Float]) {
@@ -473,10 +473,10 @@ struct GlowAnimationContent: View {
         GeometryReader { geo in
             TimelineView(.animation) { timeline in
                 let t = timeline.date.timeIntervalSinceReferenceDate
-                let level = model.audioLevel
+                let level = model.smoothedLevel  // use smoothed level
 
                 ZStack {
-                    // Blurred glow layer
+                    // Blurred glow layer - reacts to voice
                     Rectangle()
                         .strokeBorder(
                             AngularGradient(
@@ -485,9 +485,9 @@ struct GlowAnimationContent: View {
                                 startAngle: .degrees(t * 60),
                                 endAngle: .degrees(t * 60 + 360)
                             ),
-                            lineWidth: 20 + level * 40
+                            lineWidth: 15 + level * 50
                         )
-                        .blur(radius: 30 + level * 20)
+                        .blur(radius: 25 + level * 30)
 
                     // Sharp border
                     Rectangle()
@@ -498,39 +498,8 @@ struct GlowAnimationContent: View {
                                 startAngle: .degrees(t * 60),
                                 endAngle: .degrees(t * 60 + 360)
                             ),
-                            lineWidth: 4
+                            lineWidth: 3 + level * 3
                         )
-
-                    // Center stop button
-                    VStack {
-                        ZStack {
-                            Circle()
-                                .fill(Color.black.opacity(0.6))
-                                .frame(width: 60, height: 60)
-
-                            Circle()
-                                .strokeBorder(
-                                    AngularGradient(
-                                        colors: stateColors + [stateColors[0]],
-                                        center: .center,
-                                        startAngle: .degrees(t * 60),
-                                        endAngle: .degrees(t * 60 + 360)
-                                    ),
-                                    lineWidth: 2
-                                )
-                                .frame(width: 60, height: 60)
-
-                            if model.state == .processing {
-                                ProgressView()
-                                    .progressViewStyle(.circular)
-                                    .scaleEffect(0.6)
-                            } else {
-                                RoundedRectangle(cornerRadius: 4)
-                                    .fill(Color.white)
-                                    .frame(width: 20, height: 20)
-                            }
-                        }
-                    }
                 }
             }
         }
