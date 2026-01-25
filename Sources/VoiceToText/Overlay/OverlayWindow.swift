@@ -278,8 +278,8 @@ final class OverlayWindow: NSWindow {
 
     func animateCompletion(completion: @escaping () -> Void) {
         NSAnimationContext.runAnimationGroup({ context in
-            context.duration = 0.3
-            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            context.duration = 0.15  // faster fade out
+            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
             animator().alphaValue = 0
         }, completionHandler: completion)
     }
