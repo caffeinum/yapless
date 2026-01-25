@@ -10,6 +10,14 @@ final class AudioCapture {
     /// Callback for real-time audio level updates (0.0 - 1.0)
     var onAudioLevel: ((Float) -> Void)?
 
+    /// Callback for frequency spectrum (array of band levels)
+    var onFrequencySpectrum: (([Float]) -> Void)?
+
+    // FFT setup
+    private let fftSize = 512
+    private var fftSetup: vDSP_DFT_Setup?
+    private let frequencyBands = 14  // number of frequency bands to output
+
     /// Callback when recording is complete
     private var completionHandler: ((URL) -> Void)?
 
@@ -23,6 +31,9 @@ final class AudioCapture {
             channels: 1,
             interleaved: false
         )!
+
+        // Setup FFT
+        fftSetup = vDSP_DFT_zop_CreateSetup(nil, vDSP_Length(fftSize), .FORWARD)
     }
 
     /// Request microphone permission
@@ -103,8 +114,13 @@ final class AudioCapture {
     private func processAudioBuffer(_ buffer: AVAudioPCMBuffer) {
         // Calculate RMS for audio level visualization
         let level = calculateRMS(buffer: buffer)
+
+        // Calculate frequency spectrum
+        let spectrum = calculateSpectrum(buffer: buffer)
+
         DispatchQueue.main.async { [weak self] in
             self?.onAudioLevel?(level)
+            self?.onFrequencySpectrum?(spectrum)
         }
 
         // Convert and write to file
@@ -131,6 +147,75 @@ final class AudioCapture {
         // Normalize and apply some smoothing
         let normalizedLevel = min(1.0, rms * 5)
         return normalizedLevel
+    }
+
+    private func calculateSpectrum(buffer: AVAudioPCMBuffer) -> [Float] {
+        guard let channelData = buffer.floatChannelData?[0],
+              let fftSetup = fftSetup else {
+            return Array(repeating: 0, count: frequencyBands)
+        }
+
+        let frameLength = min(Int(buffer.frameLength), fftSize)
+
+        // Prepare input - apply Hann window
+        var windowedInput = [Float](repeating: 0, count: fftSize)
+        var window = [Float](repeating: 0, count: fftSize)
+        vDSP_hann_window(&window, vDSP_Length(fftSize), Int32(vDSP_HANN_NORM))
+
+        for i in 0..<frameLength {
+            windowedInput[i] = channelData[i] * window[i]
+        }
+
+        // Split complex arrays for FFT
+        var realIn = [Float](repeating: 0, count: fftSize)
+        var imagIn = [Float](repeating: 0, count: fftSize)
+        var realOut = [Float](repeating: 0, count: fftSize)
+        var imagOut = [Float](repeating: 0, count: fftSize)
+
+        realIn = windowedInput
+
+        // Perform FFT
+        vDSP_DFT_Execute(fftSetup, &realIn, &imagIn, &realOut, &imagOut)
+
+        // Calculate magnitudes
+        var magnitudes = [Float](repeating: 0, count: fftSize / 2)
+        for i in 0..<fftSize / 2 {
+            magnitudes[i] = sqrt(realOut[i] * realOut[i] + imagOut[i] * imagOut[i])
+        }
+
+        // Group into frequency bands (logarithmic distribution)
+        var bands = [Float](repeating: 0, count: frequencyBands)
+        let nyquist = fftSize / 2
+
+        for band in 0..<frequencyBands {
+            // Logarithmic frequency distribution
+            let lowBin = Int(pow(Float(nyquist), Float(band) / Float(frequencyBands)))
+            let highBin = Int(pow(Float(nyquist), Float(band + 1) / Float(frequencyBands)))
+
+            let start = max(1, lowBin)
+            let end = min(nyquist, highBin)
+
+            if end > start {
+                var sum: Float = 0
+                vDSP_sve(&magnitudes[start], 1, &sum, vDSP_Length(end - start))
+                bands[band] = sum / Float(end - start)
+            }
+        }
+
+        // Normalize bands
+        var maxVal: Float = 0
+        vDSP_maxv(bands, 1, &maxVal, vDSP_Length(frequencyBands))
+        if maxVal > 0 {
+            var scale = 1.0 / maxVal
+            vDSP_vsmul(bands, 1, &scale, &bands, 1, vDSP_Length(frequencyBands))
+        }
+
+        // Apply gain for visibility
+        for i in 0..<frequencyBands {
+            bands[i] = min(1.0, bands[i] * 3.0)
+        }
+
+        return bands
     }
 
     private func convertBuffer(_ buffer: AVAudioPCMBuffer, to format: AVAudioFormat) -> AVAudioPCMBuffer? {

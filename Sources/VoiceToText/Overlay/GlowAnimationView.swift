@@ -150,6 +150,10 @@ final class GlowAnimationView: NSView, AnimationView {
         CATransaction.commit()
     }
 
+    func updateSpectrum(_ bands: [Float]) {
+        // Old glow view doesn't use spectrum
+    }
+
     func startRecordingAnimation() {
         // Fade in all edges with staggered timing
         CATransaction.begin()

@@ -171,6 +171,10 @@ final class OverlayWindow: NSWindow {
         animationView?.updateAudioLevel(level)
     }
 
+    func updateSpectrum(_ bands: [Float]) {
+        animationView?.updateSpectrum(bands)
+    }
+
     func showRecordingState() {
         makeKeyAndOrderFront(nil)
         makeFirstResponder(self)
@@ -212,6 +216,7 @@ final class OverlayWindow: NSWindow {
 protocol AnimationView: NSView {
     var config: AnimationConfig { get }
     func updateAudioLevel(_ level: Float)
+    func updateSpectrum(_ bands: [Float])
     func startRecordingAnimation()
     func startProcessingAnimation()
     func showCompletionAnimation()

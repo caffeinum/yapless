@@ -25,6 +25,9 @@ final class AppController {
         audioCapture.onAudioLevel = { [weak self] level in
             self?.overlayWindow?.updateAudioLevel(level)
         }
+        audioCapture.onFrequencySpectrum = { [weak self] bands in
+            self?.overlayWindow?.updateSpectrum(bands)
+        }
     }
 
     func startRecording() {

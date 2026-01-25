@@ -50,6 +50,10 @@ final class SwiftUIAnimationView<Content: View>: NSView, AnimationView {
         audioLevel = CGFloat(level)
     }
 
+    func updateSpectrum(_ bands: [Float]) {
+        // Generic wrapper doesn't use spectrum
+    }
+
     func startRecordingAnimation() {
         state = .recording
     }
@@ -73,7 +77,44 @@ enum AnimationState {
 
 class AnimationModel: ObservableObject {
     @Published var audioLevel: CGFloat = 0
+    @Published var smoothedLevel: CGFloat = 0
+    @Published var spectrum: [CGFloat] = Array(repeating: 0, count: 14)
+    @Published var smoothedSpectrum: [CGFloat] = Array(repeating: 0, count: 14)
     @Published var state: AnimationState = .recording
+
+    private var lastUpdate: Date = Date()
+
+    func updateAudioLevel(_ raw: CGFloat) {
+        let now = Date()
+        let dt = now.timeIntervalSince(lastUpdate)
+        lastUpdate = now
+
+        audioLevel = raw
+
+        // Rise instant, fall slow
+        if raw > smoothedLevel {
+            smoothedLevel = raw
+        } else {
+            smoothedLevel = smoothedLevel + (raw - smoothedLevel) * min(1.0, CGFloat(dt) * 5)
+        }
+    }
+
+    func updateSpectrum(_ bands: [Float]) {
+        let now = Date()
+        let dt = now.timeIntervalSince(lastUpdate)
+
+        spectrum = bands.map { CGFloat($0) }
+
+        // Smooth each band - rise instant, fall slow
+        for i in 0..<min(bands.count, smoothedSpectrum.count) {
+            let target = CGFloat(bands[i])
+            if target > smoothedSpectrum[i] {
+                smoothedSpectrum[i] = target
+            } else {
+                smoothedSpectrum[i] = smoothedSpectrum[i] + (target - smoothedSpectrum[i]) * min(1.0, CGFloat(dt) * 6)
+            }
+        }
+    }
 }
 
 // MARK: - New Orb Animation View (NSView wrapper)
@@ -106,6 +147,10 @@ final class NewOrbAnimationView: NSView, AnimationView {
 
     func updateAudioLevel(_ level: Float) {
         model.audioLevel = CGFloat(level)
+    }
+
+    func updateSpectrum(_ bands: [Float]) {
+        // Orb doesn't use spectrum
     }
 
     func startRecordingAnimation() {
@@ -238,7 +283,11 @@ final class NewWaveformAnimationView: NSView, AnimationView {
     }
 
     func updateAudioLevel(_ level: Float) {
-        model.audioLevel = CGFloat(level)
+        model.updateAudioLevel(CGFloat(level))
+    }
+
+    func updateSpectrum(_ bands: [Float]) {
+        model.updateSpectrum(bands)
     }
 
     func startRecordingAnimation() {
@@ -257,35 +306,34 @@ final class NewWaveformAnimationView: NSView, AnimationView {
 struct WaveformAnimationContent: View {
     @ObservedObject var model: AnimationModel
     let config: AnimationConfig
-    private let barCount = 28  // more bars for smoother look
+    private let barCount = 28
 
-    // Cache colors at init
     private let barColor: Color
     private let secondaryColor: Color
+    private let processingColor: Color
 
     init(model: AnimationModel, config: AnimationConfig) {
         self.model = model
         self.config = config
         self.barColor = Color(nsColor: NSColor(hex: config.primaryColor) ?? .systemBlue)
         self.secondaryColor = Color(nsColor: NSColor(hex: config.secondaryColor) ?? .systemPurple)
+        self.processingColor = Color.orange
     }
 
     var body: some View {
         TimelineView(.animation) { timeline in
             let t = timeline.date.timeIntervalSinceReferenceDate
-            let level = model.audioLevel
 
             Canvas { context, size in
-                drawWaveform(context: context, size: size, time: t, level: level)
+                drawWaveform(context: context, size: size, time: t)
             }
         }
     }
 
-    private func drawWaveform(context: GraphicsContext, size: CGSize, time: Double, level: CGFloat) {
+    private func drawWaveform(context: GraphicsContext, size: CGSize, time: Double) {
         let centerY = size.height / 2
         let barWidth: CGFloat = 20
         let gap: CGFloat = 6
-        // Use less of the width so bars don't reach edges
         let usableWidth = size.width * 0.85
         let totalWidth = CGFloat(barCount) * (barWidth + gap) - gap
         let scale = min(1.0, usableWidth / totalWidth)
@@ -294,34 +342,53 @@ struct WaveformAnimationContent: View {
         let actualTotalWidth = CGFloat(barCount) * (actualBarWidth + actualGap) - actualGap
         let startX = (size.width - actualTotalWidth) / 2
         let center = CGFloat(barCount) / 2.0
-        let maxHeight = size.height * 0.95
+        let maxHeight = size.height * 0.9
+
+        let isProcessing = model.state == .processing
+        let level = model.smoothedLevel
 
         for i in 0..<barCount {
-            // Strong edge fade - goes to zero at edges
+            // Edge fade
             let distFromCenter = abs(CGFloat(i) - center) / center
-            let edgeFade = pow(cos(distFromCenter * .pi / 2), 1.5)  // stronger falloff
+            let edgeFade = pow(cos(distFromCenter * .pi / 2), 1.5)
 
-            // Skip bars that would be invisible
             if edgeFade < 0.05 { continue }
 
-            // Wave
-            let wave = sin(Double(i) * 0.4 + time * 3) * 0.5 + 0.5
+            // Wave that flows outward from center
+            let wavePhase = time * 3.0 - Double(distFromCenter) * 2.0
+            let wave = sin(wavePhase) * 0.5 + 0.5
 
-            // Height - taller bars
-            let height = (12 + CGFloat(wave) * maxHeight * (0.2 + level * 0.8)) * edgeFade
-            let halfHeight = max(4, height / 2)
+            // Processing animation - faster wave
+            let processingWave = sin(time * 4.0 - Double(distFromCenter) * 3.0) * 0.5 + 0.5
+
+            // Height based on audio level or processing state
+            let idleHeight: CGFloat = 8
+            let audioHeight: CGFloat
+            if isProcessing {
+                audioHeight = CGFloat(processingWave) * maxHeight * 0.5
+            } else {
+                let waveHeight = CGFloat(wave) * (idleHeight + level * maxHeight * 0.3)
+                audioHeight = waveHeight + level * maxHeight * 0.5
+            }
+
+            let totalHeight = (idleHeight + audioHeight) * edgeFade
+            let halfHeight = max(4, totalHeight / 2)
 
             let x = startX + CGFloat(i) * (actualBarWidth + actualGap)
-            let opacity = edgeFade * 0.95
+            let opacity = 0.7 + edgeFade * 0.25
 
-            // Blend between primary and secondary based on position
-            let colorMix = distFromCenter
-            let blendedColor = colorMix < 0.5 ? barColor.opacity(opacity) : secondaryColor.opacity(opacity)
+            // Color: orange during processing, normal otherwise
+            let color: Color
+            if isProcessing {
+                color = processingColor.opacity(opacity)
+            } else {
+                let colorMix = distFromCenter
+                color = colorMix < 0.5 ? barColor.opacity(opacity) : secondaryColor.opacity(opacity)
+            }
 
-            // Single bar spanning both directions from center
             let fullHeight = halfHeight * 2
             let barRect = CGRect(x: x, y: centerY - halfHeight, width: actualBarWidth, height: fullHeight)
-            context.fill(RoundedRectangle(cornerRadius: actualBarWidth / 2).path(in: barRect), with: .color(blendedColor))
+            context.fill(RoundedRectangle(cornerRadius: actualBarWidth / 2).path(in: barRect), with: .color(color))
         }
     }
 }
@@ -357,6 +424,10 @@ final class NewGlowAnimationView: NSView, AnimationView {
 
     func updateAudioLevel(_ level: Float) {
         model.audioLevel = CGFloat(level)
+    }
+
+    func updateSpectrum(_ bands: [Float]) {
+        // Glow doesn't use spectrum
     }
 
     func startRecordingAnimation() {
@@ -496,6 +567,10 @@ final class NewSiriAnimationView: NSView, AnimationView {
 
     func updateAudioLevel(_ level: Float) {
         model.audioLevel = CGFloat(level)
+    }
+
+    func updateSpectrum(_ bands: [Float]) {
+        // Siri doesn't use spectrum
     }
 
     func startRecordingAnimation() {

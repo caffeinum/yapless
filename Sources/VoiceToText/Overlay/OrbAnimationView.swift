@@ -99,6 +99,10 @@ final class OrbAnimationView: NSView, AnimationView {
         CATransaction.commit()
     }
 
+    func updateSpectrum(_ bands: [Float]) {
+        // Old orb view doesn't use spectrum
+    }
+
     func startRecordingAnimation() {
         // Breathing animation
         let breathingAnimation = CABasicAnimation(keyPath: "transform.scale")

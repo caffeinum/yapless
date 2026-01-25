@@ -99,6 +99,10 @@ final class WaveformAnimationView: NSView, AnimationView {
         CATransaction.commit()
     }
 
+    func updateSpectrum(_ bands: [Float]) {
+        // Old waveform view doesn't use spectrum
+    }
+
     func startRecordingAnimation() {
         // Fade in
         let fadeIn = CABasicAnimation(keyPath: "opacity")
