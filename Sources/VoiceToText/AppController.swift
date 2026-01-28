@@ -1,7 +1,6 @@
 import AppKit
 import AVFoundation
 
-/// Main controller that orchestrates recording, transcription, and UI
 final class AppController {
     private let config: Config
     private let audioCapture: AudioCapture
@@ -13,6 +12,8 @@ final class AppController {
     private var isRecording = false
     private var shouldPressEnterAfterPaste = false
     private var currentRecordingURL: URL?
+    private var chunkTranscriber: ChunkTranscriber?
+    private var recordingTimestamp: String?
 
     init(config: Config) {
         self.config = config
@@ -20,15 +21,18 @@ final class AppController {
         self.whisperEngine = WhisperEngine(config: config.whisper)
         self.outputHandler = OutputHandler(config: config.output)
 
-        setupAudioLevelCallback()
+        setupCallbacks()
     }
 
-    private func setupAudioLevelCallback() {
+    private func setupCallbacks() {
         audioCapture.onAudioLevel = { [weak self] level in
             self?.overlayWindow?.updateAudioLevel(level)
         }
         audioCapture.onFrequencySpectrum = { [weak self] bands in
             self?.overlayWindow?.updateSpectrum(bands)
+        }
+        audioCapture.onChunkReady = { [weak self] chunkURL, index in
+            self?.chunkTranscriber?.enqueue(chunkURL: chunkURL, index: index)
         }
     }
 
@@ -36,18 +40,19 @@ final class AppController {
         guard !isRecording else { return }
         isRecording = true
 
-        // Save the currently active app so we can restore focus later
         previousApp = NSWorkspace.shared.frontmostApplication
-
-        // Change cursor to indicate recording
         NSCursor.pointingHand.push()
 
-        // Show overlay animation
-        if config.animation.style != .cursor || true { // Always show for now
+        let timestamp = ISO8601DateFormatter().string(from: Date())
+        let safeTimestamp = timestamp.replacingOccurrences(of: ":", with: "-")
+        recordingTimestamp = safeTimestamp
+
+        chunkTranscriber = ChunkTranscriber(whisperConfig: config.whisper, timestamp: safeTimestamp)
+
+        if config.animation.style != .cursor || true {
             showOverlay()
         }
 
-        // Start audio capture
         audioCapture.startRecording { [weak self] audioURL in
             self?.processRecording(at: audioURL)
         }
@@ -58,6 +63,7 @@ final class AppController {
         isRecording = false
         shouldPressEnterAfterPaste = pressEnter
 
+        chunkTranscriber?.stop()
         audioCapture.stopRecording()
         overlayWindow?.showProcessingState()
     }
@@ -104,24 +110,19 @@ final class AppController {
 
     private func saveHistoryIfEnabled(text: String, audioURL: URL) {
         guard config.storage.saveHistory else { return }
+        guard let timestamp = recordingTimestamp else { return }
 
-        let timestamp = ISO8601DateFormatter().string(from: Date())
-        let safeTimestamp = timestamp.replacingOccurrences(of: ":", with: "-")
         let fm = FileManager.default
 
         do {
-            try fm.createDirectory(at: StorageConfig.recordingsDirectory, withIntermediateDirectories: true)
             try fm.createDirectory(at: StorageConfig.transcriptionsDirectory, withIntermediateDirectories: true)
 
-            let recordingDest = StorageConfig.recordingsDirectory.appendingPathComponent("\(safeTimestamp).wav")
-            try fm.copyItem(at: audioURL, to: recordingDest)
-
-            let transcriptionDest = StorageConfig.transcriptionsDirectory.appendingPathComponent("\(safeTimestamp).txt")
+            let transcriptionDest = StorageConfig.transcriptionsDirectory.appendingPathComponent("\(timestamp).txt")
             try text.write(to: transcriptionDest, atomically: true, encoding: .utf8)
 
-            print("Saved history to \(StorageConfig.dataDirectory.path)")
+            print("Saved transcription to \(transcriptionDest.path)")
         } catch {
-            print("Failed to save history: \(error.localizedDescription)")
+            print("Failed to save transcription: \(error.localizedDescription)")
         }
     }
 

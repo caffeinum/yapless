@@ -1,27 +1,26 @@
 import AVFoundation
 import Accelerate
 
-/// Handles audio capture from the microphone
 final class AudioCapture {
     private var audioEngine: AVAudioEngine?
     private var audioFile: AVAudioFile?
-    private var recordingURL: URL?
+    private(set) var recordingURL: URL?
+    private var recordingTimestamp: String?
 
-    /// Callback for real-time audio level updates (0.0 - 1.0)
     var onAudioLevel: ((Float) -> Void)?
-
-    /// Callback for frequency spectrum (array of band levels)
     var onFrequencySpectrum: (([Float]) -> Void)?
 
-    // FFT setup
     private let fftSize = 512
     private var fftSetup: vDSP_DFT_Setup?
-    private let frequencyBands = 14  // number of frequency bands to output
+    private let frequencyBands = 14
 
-    /// Callback when recording is complete
     private var completionHandler: ((URL) -> Void)?
-
     private let recordingFormat: AVAudioFormat
+
+    private var chunkTimer: Timer?
+    private var lastChunkFrame: AVAudioFramePosition = 0
+    private let chunkIntervalSeconds: Double = 15.0
+    var onChunkReady: ((URL, Int) -> Void)?
 
     init() {
         // Standard format for Whisper: 16kHz mono
@@ -45,14 +44,18 @@ final class AudioCapture {
         }
     }
 
-    /// Start recording audio
     func startRecording(completion: @escaping (URL) -> Void) {
         self.completionHandler = completion
 
-        // Create temporary file for recording
-        let tempDir = FileManager.default.temporaryDirectory
-        let filename = "voice-recording-\(UUID().uuidString).wav"
-        recordingURL = tempDir.appendingPathComponent(filename)
+        let timestamp = ISO8601DateFormatter().string(from: Date())
+        let safeTimestamp = timestamp.replacingOccurrences(of: ":", with: "-")
+        recordingTimestamp = safeTimestamp
+
+        let fm = FileManager.default
+        try? fm.createDirectory(at: StorageConfig.recordingsDirectory, withIntermediateDirectories: true)
+
+        let filename = "\(safeTimestamp).wav"
+        recordingURL = StorageConfig.recordingsDirectory.appendingPathComponent(filename)
 
         guard let recordingURL = recordingURL else { return }
 
@@ -63,7 +66,6 @@ final class AudioCapture {
             let inputNode = audioEngine.inputNode
             let inputFormat = inputNode.outputFormat(forBus: 0)
 
-            // Create audio file
             audioFile = try AVAudioFile(
                 forWriting: recordingURL,
                 settings: [
@@ -76,10 +78,12 @@ final class AudioCapture {
                 ]
             )
 
-            // Install tap on input node
+            lastChunkFrame = 0
+            startChunkTimer()
+
             inputNode.installTap(
                 onBus: 0,
-                bufferSize: 512,  // balanced: ~30 updates/sec at 16kHz
+                bufferSize: 512,
                 format: inputFormat
             ) { [weak self] buffer, _ in
                 self?.processAudioBuffer(buffer)
@@ -88,15 +92,73 @@ final class AudioCapture {
             audioEngine.prepare()
             try audioEngine.start()
 
-            print("Recording started...")
+            print("Recording started to \(recordingURL.path)")
 
         } catch {
             print("Failed to start recording: \(error)")
         }
     }
 
-    /// Stop recording and return the audio file URL
+    private func startChunkTimer() {
+        chunkTimer = Timer.scheduledTimer(withTimeInterval: chunkIntervalSeconds, repeats: true) { [weak self] _ in
+            self?.extractChunk()
+        }
+    }
+
+    private func extractChunk() {
+        guard let recordingURL = recordingURL,
+              let audioFile = audioFile else { return }
+
+        let currentFrame = audioFile.framePosition
+        let framesToExtract = currentFrame - lastChunkFrame
+        let chunkIndex = Int(lastChunkFrame / AVAudioFramePosition(16000 * chunkIntervalSeconds))
+        let startFrame = lastChunkFrame
+
+        guard framesToExtract >= 8000 else { return }
+
+        lastChunkFrame = currentFrame
+
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            guard let self = self else { return }
+
+            do {
+                let sourceFile = try AVAudioFile(forReading: recordingURL)
+                sourceFile.framePosition = startFrame
+
+                let chunkURL = FileManager.default.temporaryDirectory
+                    .appendingPathComponent("chunk-\(chunkIndex).wav")
+
+                let chunkFile = try AVAudioFile(
+                    forWriting: chunkURL,
+                    settings: [
+                        AVFormatIDKey: kAudioFormatLinearPCM,
+                        AVSampleRateKey: 16000,
+                        AVNumberOfChannelsKey: 1,
+                        AVLinearPCMBitDepthKey: 16,
+                        AVLinearPCMIsFloatKey: false,
+                        AVLinearPCMIsBigEndianKey: false
+                    ]
+                )
+
+                let bufferSize = AVAudioFrameCount(framesToExtract)
+                guard let buffer = AVAudioPCMBuffer(pcmFormat: sourceFile.processingFormat, frameCapacity: bufferSize) else {
+                    return
+                }
+                try sourceFile.read(into: buffer, frameCount: bufferSize)
+                try chunkFile.write(from: buffer)
+
+                self.onChunkReady?(chunkURL, chunkIndex)
+            } catch {
+            }
+        }
+    }
+
     func stopRecording() {
+        chunkTimer?.invalidate()
+        chunkTimer = nil
+
+        extractChunk()
+
         guard let audioEngine = audioEngine else { return }
 
         audioEngine.inputNode.removeTap(onBus: 0)

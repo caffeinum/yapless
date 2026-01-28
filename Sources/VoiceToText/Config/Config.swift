@@ -117,6 +117,10 @@ struct StorageConfig: Codable {
     static var transcriptionsDirectory: URL {
         dataDirectory.appendingPathComponent("transcriptions")
     }
+
+    static var draftsDirectory: URL {
+        dataDirectory.appendingPathComponent("drafts")
+    }
 }
 
 struct Config: Codable {

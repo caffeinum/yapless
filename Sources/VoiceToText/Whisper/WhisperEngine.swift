@@ -110,6 +110,10 @@ final class WhisperEngine {
     }
 
     func transcribe(audioURL: URL, completion: @escaping (Result<String, Error>) -> Void) {
+        transcribe(audioURL: audioURL, maxRetries: 3, completion: completion)
+    }
+
+    func transcribe(audioURL: URL, maxRetries: Int, completion: @escaping (Result<String, Error>) -> Void) {
         guard FileManager.default.fileExists(atPath: audioURL.path) else {
             completion(.failure(WhisperError.invalidAudioFile))
             return
@@ -123,17 +127,31 @@ final class WhisperEngine {
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self = self else { return }
 
-            do {
-                let text: String
-                if variant == .groq {
-                    text = try self.transcribeWithGroq(audioPath: audioURL.path)
-                } else {
-                    text = try self.transcribeLocally(variant: variant, audioPath: audioURL.path)
+            var lastError: Error?
+            let delays = [0.0, 1.0, 2.0, 4.0]
+
+            for attempt in 0..<maxRetries {
+                if attempt > 0 {
+                    print("Retry attempt \(attempt) after \(delays[attempt])s...")
+                    Thread.sleep(forTimeInterval: delays[attempt])
                 }
-                completion(.success(text))
-            } catch {
-                completion(.failure(error))
+
+                do {
+                    let text: String
+                    if variant == .groq {
+                        text = try self.transcribeWithGroq(audioPath: audioURL.path)
+                    } else {
+                        text = try self.transcribeLocally(variant: variant, audioPath: audioURL.path)
+                    }
+                    completion(.success(text))
+                    return
+                } catch {
+                    lastError = error
+                    print("Transcription attempt \(attempt + 1) failed: \(error.localizedDescription)")
+                }
             }
+
+            completion(.failure(lastError ?? WhisperError.transcriptionFailed("All retries exhausted")))
         }
     }
 
