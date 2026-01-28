@@ -9,10 +9,9 @@ Sources/VoiceToText/
 ├── main.swift              # cli entry point (ArgumentParser)
 ├── AppController.swift     # orchestrates recording → transcription → paste
 ├── Audio/
-│   └── AudioCapture.swift  # AVAudioEngine recording, FFT spectrum, chunk extraction
+│   └── AudioCapture.swift  # AVAudioEngine recording, FFT spectrum
 ├── Whisper/
 │   └── WhisperEngine.swift # groq api, local whisper backends, retry logic
-├── ChunkTranscriber.swift  # background 15s chunk transcription (safety net)
 ├── OutputHandler.swift     # clipboard, paste simulation, notifications
 ├── Config/
 │   └── Config.swift        # json config, storage paths
@@ -24,7 +23,6 @@ Sources/VoiceToText/
 
 - audio writes directly to `~/.local/share/yapless/recordings/` (not /tmp)
 - transcriptions save to `~/.local/share/yapless/transcriptions/`
-- draft chunks save to `~/.local/share/yapless/drafts/` (requires GROQ_API_KEY)
 - config at `~/.config/yapless/config.json`
 
 ## recording flow
@@ -41,12 +39,11 @@ priority: groq api (if GROQ_API_KEY) → local whisper → whisper-cpp → whisp
 ## safety net features
 
 - audio saved immediately to permanent location (survives crashes)
-- 15s chunk transcription during recording (draft preserved if final fails)
 - 3 retries with exponential backoff for final transcription
-- Esc during processing cancels but keeps audio + draft
+- Esc during processing cancels but keeps audio file
 
 ## gotchas
 
-- chunk transcription only works with groq (needs api key)
 - event tap requires accessibility permission
 - XCTest doesn't work with swift package manager on this project (pre-existing issue)
+- config was renamed from `~/.config/voice-to-text/` to `~/.config/yapless/` - migrate manually if needed

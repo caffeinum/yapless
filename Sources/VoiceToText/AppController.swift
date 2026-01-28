@@ -12,7 +12,6 @@ final class AppController {
     private var isRecording = false
     private var shouldPressEnterAfterPaste = false
     private var currentRecordingURL: URL?
-    private var chunkTranscriber: ChunkTranscriber?
     private var recordingTimestamp: String?
 
     init(config: Config) {
@@ -31,9 +30,6 @@ final class AppController {
         audioCapture.onFrequencySpectrum = { [weak self] bands in
             self?.overlayWindow?.updateSpectrum(bands)
         }
-        audioCapture.onChunkReady = { [weak self] chunkURL, index in
-            self?.chunkTranscriber?.enqueue(chunkURL: chunkURL, index: index)
-        }
     }
 
     func startRecording() {
@@ -46,8 +42,6 @@ final class AppController {
         let timestamp = ISO8601DateFormatter().string(from: Date())
         let safeTimestamp = timestamp.replacingOccurrences(of: ":", with: "-")
         recordingTimestamp = safeTimestamp
-
-        chunkTranscriber = ChunkTranscriber(whisperConfig: config.whisper, timestamp: safeTimestamp)
 
         if config.animation.style != .cursor || true {
             showOverlay()
@@ -63,7 +57,6 @@ final class AppController {
         isRecording = false
         shouldPressEnterAfterPaste = pressEnter
 
-        chunkTranscriber?.stop()
         audioCapture.stopRecording()
         overlayWindow?.showProcessingState()
     }

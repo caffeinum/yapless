@@ -5,7 +5,6 @@ final class AudioCapture {
     private var audioEngine: AVAudioEngine?
     private var audioFile: AVAudioFile?
     private(set) var recordingURL: URL?
-    private var recordingTimestamp: String?
 
     var onAudioLevel: ((Float) -> Void)?
     var onFrequencySpectrum: (([Float]) -> Void)?
@@ -17,13 +16,7 @@ final class AudioCapture {
     private var completionHandler: ((URL) -> Void)?
     private let recordingFormat: AVAudioFormat
 
-    private var chunkTimer: Timer?
-    private var lastChunkFrame: AVAudioFramePosition = 0
-    private let chunkIntervalSeconds: Double = 15.0
-    var onChunkReady: ((URL, Int) -> Void)?
-
     init() {
-        // Standard format for Whisper: 16kHz mono
         self.recordingFormat = AVAudioFormat(
             commonFormat: .pcmFormatFloat32,
             sampleRate: 16000,
@@ -31,11 +24,9 @@ final class AudioCapture {
             interleaved: false
         )!
 
-        // Setup FFT
         fftSetup = vDSP_DFT_zop_CreateSetup(nil, vDSP_Length(fftSize), .FORWARD)
     }
 
-    /// Request microphone permission
     func requestPermission(completion: @escaping (Bool) -> Void) {
         AVCaptureDevice.requestAccess(for: .audio) { granted in
             DispatchQueue.main.async {
@@ -49,7 +40,6 @@ final class AudioCapture {
 
         let timestamp = ISO8601DateFormatter().string(from: Date())
         let safeTimestamp = timestamp.replacingOccurrences(of: ":", with: "-")
-        recordingTimestamp = safeTimestamp
 
         let fm = FileManager.default
         try? fm.createDirectory(at: StorageConfig.recordingsDirectory, withIntermediateDirectories: true)
@@ -78,9 +68,6 @@ final class AudioCapture {
                 ]
             )
 
-            lastChunkFrame = 0
-            startChunkTimer()
-
             inputNode.installTap(
                 onBus: 0,
                 bufferSize: 512,
@@ -99,66 +86,7 @@ final class AudioCapture {
         }
     }
 
-    private func startChunkTimer() {
-        chunkTimer = Timer.scheduledTimer(withTimeInterval: chunkIntervalSeconds, repeats: true) { [weak self] _ in
-            self?.extractChunk()
-        }
-    }
-
-    private func extractChunk() {
-        guard let recordingURL = recordingURL,
-              let audioFile = audioFile else { return }
-
-        let currentFrame = audioFile.framePosition
-        let framesToExtract = currentFrame - lastChunkFrame
-        let chunkIndex = Int(lastChunkFrame / AVAudioFramePosition(16000 * chunkIntervalSeconds))
-        let startFrame = lastChunkFrame
-
-        guard framesToExtract >= 8000 else { return }
-
-        lastChunkFrame = currentFrame
-
-        DispatchQueue.global(qos: .utility).async { [weak self] in
-            guard let self = self else { return }
-
-            do {
-                let sourceFile = try AVAudioFile(forReading: recordingURL)
-                sourceFile.framePosition = startFrame
-
-                let chunkURL = FileManager.default.temporaryDirectory
-                    .appendingPathComponent("chunk-\(chunkIndex).wav")
-
-                let chunkFile = try AVAudioFile(
-                    forWriting: chunkURL,
-                    settings: [
-                        AVFormatIDKey: kAudioFormatLinearPCM,
-                        AVSampleRateKey: 16000,
-                        AVNumberOfChannelsKey: 1,
-                        AVLinearPCMBitDepthKey: 16,
-                        AVLinearPCMIsFloatKey: false,
-                        AVLinearPCMIsBigEndianKey: false
-                    ]
-                )
-
-                let bufferSize = AVAudioFrameCount(framesToExtract)
-                guard let buffer = AVAudioPCMBuffer(pcmFormat: sourceFile.processingFormat, frameCapacity: bufferSize) else {
-                    return
-                }
-                try sourceFile.read(into: buffer, frameCount: bufferSize)
-                try chunkFile.write(from: buffer)
-
-                self.onChunkReady?(chunkURL, chunkIndex)
-            } catch {
-            }
-        }
-    }
-
     func stopRecording() {
-        chunkTimer?.invalidate()
-        chunkTimer = nil
-
-        extractChunk()
-
         guard let audioEngine = audioEngine else { return }
 
         audioEngine.inputNode.removeTap(onBus: 0)
@@ -174,10 +102,7 @@ final class AudioCapture {
     }
 
     private func processAudioBuffer(_ buffer: AVAudioPCMBuffer) {
-        // Calculate RMS for audio level visualization
         let level = calculateRMS(buffer: buffer)
-
-        // Calculate frequency spectrum
         let spectrum = calculateSpectrum(buffer: buffer)
 
         DispatchQueue.main.async { [weak self] in
@@ -185,10 +110,8 @@ final class AudioCapture {
             self?.onFrequencySpectrum?(spectrum)
         }
 
-        // Convert and write to file
         guard let audioFile = audioFile else { return }
 
-        // Convert to 16kHz mono if needed
         if let convertedBuffer = convertBuffer(buffer, to: recordingFormat) {
             do {
                 try audioFile.write(from: convertedBuffer)
@@ -206,7 +129,6 @@ final class AudioCapture {
 
         vDSP_rmsqv(channelData, 1, &rms, vDSP_Length(frameLength))
 
-        // Normalize and apply some smoothing
         let normalizedLevel = min(1.0, rms * 5)
         return normalizedLevel
     }
@@ -219,7 +141,6 @@ final class AudioCapture {
 
         let frameLength = min(Int(buffer.frameLength), fftSize)
 
-        // Prepare input - apply Hann window
         var windowedInput = [Float](repeating: 0, count: fftSize)
         var window = [Float](repeating: 0, count: fftSize)
         vDSP_hann_window(&window, vDSP_Length(fftSize), Int32(vDSP_HANN_NORM))
@@ -228,7 +149,6 @@ final class AudioCapture {
             windowedInput[i] = channelData[i] * window[i]
         }
 
-        // Split complex arrays for FFT
         var realIn = [Float](repeating: 0, count: fftSize)
         var imagIn = [Float](repeating: 0, count: fftSize)
         var realOut = [Float](repeating: 0, count: fftSize)
@@ -236,21 +156,17 @@ final class AudioCapture {
 
         realIn = windowedInput
 
-        // Perform FFT
         vDSP_DFT_Execute(fftSetup, &realIn, &imagIn, &realOut, &imagOut)
 
-        // Calculate magnitudes
         var magnitudes = [Float](repeating: 0, count: fftSize / 2)
         for i in 0..<fftSize / 2 {
             magnitudes[i] = sqrt(realOut[i] * realOut[i] + imagOut[i] * imagOut[i])
         }
 
-        // Group into frequency bands (logarithmic distribution)
         var bands = [Float](repeating: 0, count: frequencyBands)
         let nyquist = fftSize / 2
 
         for band in 0..<frequencyBands {
-            // Logarithmic frequency distribution
             let lowBin = Int(pow(Float(nyquist), Float(band) / Float(frequencyBands)))
             let highBin = Int(pow(Float(nyquist), Float(band + 1) / Float(frequencyBands)))
 
@@ -264,7 +180,6 @@ final class AudioCapture {
             }
         }
 
-        // Normalize bands
         var maxVal: Float = 0
         vDSP_maxv(bands, 1, &maxVal, vDSP_Length(frequencyBands))
         if maxVal > 0 {
@@ -272,7 +187,6 @@ final class AudioCapture {
             vDSP_vsmul(bands, 1, &scale, &bands, 1, vDSP_Length(frequencyBands))
         }
 
-        // Apply gain for visibility
         for i in 0..<frequencyBands {
             bands[i] = min(1.0, bands[i] * 3.0)
         }
