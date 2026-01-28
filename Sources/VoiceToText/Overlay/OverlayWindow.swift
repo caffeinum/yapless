@@ -10,9 +10,9 @@ final class OverlayWindow: NSWindow {
     private var eventTap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
 
-    /// Called when user clicks or presses enter/space to stop recording
-    /// Bool indicates whether to press Enter after pasting (true if Enter was pressed)
     var onStopRequested: ((Bool) -> Void)?
+    var onCancelRequested: (() -> Void)?
+    private var isProcessing = false
 
     init(config: AnimationConfig) {
         self.animationConfig = config
@@ -261,7 +261,66 @@ final class OverlayWindow: NSWindow {
     }
 
     func showProcessingState() {
+        isProcessing = true
         animationView?.startProcessingAnimation()
+        releaseControlKeepEscMonitor()
+    }
+
+    private func releaseControlKeepEscMonitor() {
+        if let monitor = clickMonitor {
+            NSEvent.removeMonitor(monitor)
+            clickMonitor = nil
+        }
+
+        if let eventTap = eventTap {
+            CGEvent.tapEnable(tap: eventTap, enable: false)
+        }
+        if let runLoopSource = runLoopSource {
+            CFRunLoopRemoveSource(CFRunLoopGetCurrent(), runLoopSource, .commonModes)
+            self.runLoopSource = nil
+        }
+        self.eventTap = nil
+
+        ignoresMouseEvents = true
+        resignKey()
+
+        setupEscOnlyMonitor()
+    }
+
+    private func setupEscOnlyMonitor() {
+        let refcon = Unmanaged.passUnretained(self).toOpaque()
+        let eventMask = (1 << CGEventType.keyDown.rawValue)
+
+        eventTap = CGEvent.tapCreate(
+            tap: .cgSessionEventTap,
+            place: .headInsertEventTap,
+            options: .defaultTap,
+            eventsOfInterest: CGEventMask(eventMask),
+            callback: { (proxy, type, event, refcon) -> Unmanaged<CGEvent>? in
+                guard let refcon = refcon else { return Unmanaged.passRetained(event) }
+
+                let window = Unmanaged<OverlayWindow>.fromOpaque(refcon).takeUnretainedValue()
+                let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
+
+                if keyCode == 53 && window.isProcessing {
+                    DispatchQueue.main.async {
+                        window.onCancelRequested?()
+                    }
+                    return nil
+                }
+
+                return Unmanaged.passRetained(event)
+            },
+            userInfo: refcon
+        )
+
+        guard let eventTap = eventTap else { return }
+
+        runLoopSource = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, eventTap, 0)
+        if let runLoopSource = runLoopSource {
+            CFRunLoopAddSource(CFRunLoopGetCurrent(), runLoopSource, .commonModes)
+            CGEvent.tapEnable(tap: eventTap, enable: true)
+        }
     }
 
     func showCompletionState() {

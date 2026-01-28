@@ -81,7 +81,20 @@ final class AppController {
         overlayWindow?.onStopRequested = { [weak self] pressEnter in
             self?.stopRecording(pressEnter: pressEnter)
         }
+        overlayWindow?.onCancelRequested = { [weak self] in
+            self?.cancelTranscription()
+        }
         overlayWindow?.showRecordingState()
+    }
+
+    private func cancelTranscription() {
+        print("Transcription cancelled (draft preserved)")
+        NSCursor.pop()
+        hideOverlay()
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            NSApplication.shared.terminate(nil)
+        }
     }
 
     private func hideOverlay() {
