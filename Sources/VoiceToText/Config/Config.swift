@@ -95,14 +95,39 @@ struct OutputConfig: Codable {
     }
 }
 
+struct StorageConfig: Codable {
+    var saveHistory: Bool = true  // save recordings and transcriptions to ~/.local/share/yapless/
+
+    init() {}
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        saveHistory = try container.decodeIfPresent(Bool.self, forKey: .saveHistory) ?? true
+    }
+
+    static var dataDirectory: URL {
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        return home.appendingPathComponent(".local/share/yapless")
+    }
+
+    static var recordingsDirectory: URL {
+        dataDirectory.appendingPathComponent("recordings")
+    }
+
+    static var transcriptionsDirectory: URL {
+        dataDirectory.appendingPathComponent("transcriptions")
+    }
+}
+
 struct Config: Codable {
     var animation: AnimationConfig = AnimationConfig()
     var whisper: WhisperConfig = WhisperConfig()
     var output: OutputConfig = OutputConfig()
+    var storage: StorageConfig = StorageConfig()
 
     static let defaultPath: String = {
         let home = FileManager.default.homeDirectoryForCurrentUser
-        return home.appendingPathComponent(".config/voice-to-text/config.json").path
+        return home.appendingPathComponent(".config/yapless/config.json").path
     }()
 
     static func load(from path: String) throws -> Config {

@@ -12,6 +12,7 @@ final class AppController {
 
     private var isRecording = false
     private var shouldPressEnterAfterPaste = false
+    private var currentRecordingURL: URL?
 
     init(config: Config) {
         self.config = config
@@ -85,17 +86,42 @@ final class AppController {
     }
 
     private func processRecording(at audioURL: URL) {
+        currentRecordingURL = audioURL
         overlayWindow?.showProcessingState()
 
         whisperEngine.transcribe(audioURL: audioURL) { [weak self] result in
             DispatchQueue.main.async {
                 switch result {
                 case .success(let text):
+                    self?.saveHistoryIfEnabled(text: text, audioURL: audioURL)
                     self?.handleTranscriptionResult(text)
                 case .failure(let error):
                     self?.handleTranscriptionError(error)
                 }
             }
+        }
+    }
+
+    private func saveHistoryIfEnabled(text: String, audioURL: URL) {
+        guard config.storage.saveHistory else { return }
+
+        let timestamp = ISO8601DateFormatter().string(from: Date())
+        let safeTimestamp = timestamp.replacingOccurrences(of: ":", with: "-")
+        let fm = FileManager.default
+
+        do {
+            try fm.createDirectory(at: StorageConfig.recordingsDirectory, withIntermediateDirectories: true)
+            try fm.createDirectory(at: StorageConfig.transcriptionsDirectory, withIntermediateDirectories: true)
+
+            let recordingDest = StorageConfig.recordingsDirectory.appendingPathComponent("\(safeTimestamp).wav")
+            try fm.copyItem(at: audioURL, to: recordingDest)
+
+            let transcriptionDest = StorageConfig.transcriptionsDirectory.appendingPathComponent("\(safeTimestamp).txt")
+            try text.write(to: transcriptionDest, atomically: true, encoding: .utf8)
+
+            print("Saved history to \(StorageConfig.dataDirectory.path)")
+        } catch {
+            print("Failed to save history: \(error.localizedDescription)")
         }
     }
 

@@ -76,9 +76,24 @@ yapless --record --animation-style waveform
   "output": {
     "pasteToActiveApp": true,
     "copyToClipboard": true
+  },
+  "storage": {
+    "saveHistory": true
   }
 }
 ```
+
+### history
+
+by default, yapless saves all recordings and transcriptions to `~/.local/share/yapless/`:
+
+```
+~/.local/share/yapless/
+├── recordings/      # .wav files
+└── transcriptions/  # .txt files
+```
+
+to disable, set `storage.saveHistory` to `false` in config.
 
 ### animations
 
