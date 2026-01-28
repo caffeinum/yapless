@@ -129,6 +129,16 @@ struct Config: Codable {
     var output: OutputConfig = OutputConfig()
     var storage: StorageConfig = StorageConfig()
 
+    init() {}
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        animation = try container.decodeIfPresent(AnimationConfig.self, forKey: .animation) ?? AnimationConfig()
+        whisper = try container.decodeIfPresent(WhisperConfig.self, forKey: .whisper) ?? WhisperConfig()
+        output = try container.decodeIfPresent(OutputConfig.self, forKey: .output) ?? OutputConfig()
+        storage = try container.decodeIfPresent(StorageConfig.self, forKey: .storage) ?? StorageConfig()
+    }
+
     static let defaultPath: String = {
         let home = FileManager.default.homeDirectoryForCurrentUser
         return home.appendingPathComponent(".config/yapless/config.json").path
