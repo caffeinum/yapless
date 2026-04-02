@@ -47,17 +47,17 @@ final class WhisperEngine {
         case .groq:
             if groqApiKey != nil {
                 detectedVariant = .groq
-                print("Using Groq API for transcription")
+                fputs("Using Groq API for transcription\n", stderr)
                 return
             }
-            print("Groq API key not found, falling back to local")
+            fputs("Groq API key not found, falling back to local\n", stderr)
             fallthrough
 
         case .auto:
             // Prefer Groq if API key available (fastest)
             if groqApiKey != nil {
                 detectedVariant = .groq
-                print("Using Groq API for transcription (auto-detected)")
+                fputs("Using Groq API for transcription (auto-detected)\n", stderr)
                 return
             }
             // Fall through to local detection
@@ -82,7 +82,7 @@ final class WhisperEngine {
             if FileManager.default.fileExists(atPath: path) {
                 self.whisperPath = path
                 self.detectedVariant = variant
-                print("Using local whisper: \(variant) at \(path)")
+                fputs("Using local whisper: \(variant) at \(path)\n", stderr)
                 return
             }
         }
@@ -102,7 +102,7 @@ final class WhisperEngine {
                 if FileManager.default.fileExists(atPath: fullPath) {
                     self.whisperPath = fullPath
                     self.detectedVariant = variant
-                    print("Using local whisper: \(variant) at \(fullPath)")
+                    fputs("Using local whisper: \(variant) at \(fullPath)\n", stderr)
                     return
                 }
             }
@@ -132,7 +132,7 @@ final class WhisperEngine {
 
             for attempt in 0..<maxRetries {
                 if attempt > 0 {
-                    print("Retry attempt \(attempt) after \(delays[attempt])s...")
+                    fputs("Retry attempt \(attempt) after \(delays[attempt])s...\n", stderr)
                     Thread.sleep(forTimeInterval: delays[attempt])
                 }
 
@@ -147,7 +147,7 @@ final class WhisperEngine {
                     return
                 } catch {
                     lastError = error
-                    print("Transcription attempt \(attempt + 1) failed: \(error.localizedDescription)")
+                    fputs("Transcription attempt \(attempt + 1) failed: \(error.localizedDescription)\n", stderr)
                 }
             }
 
