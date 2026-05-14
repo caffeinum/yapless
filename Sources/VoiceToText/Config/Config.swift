@@ -6,6 +6,7 @@ enum AnimationStyle: String, Codable, CaseIterable {
     case glow = "glow"
     case siri = "siri"
     case cursor = "cursor"
+    case dot = "dot"
 
     var description: String {
         switch self {
@@ -14,12 +15,13 @@ enum AnimationStyle: String, Codable, CaseIterable {
         case .glow: return "Apple Intelligence style border glow"
         case .siri: return "Multi-colored Siri wave lines"
         case .cursor: return "Cursor-following indicator"
+        case .dot: return "Cursor becomes a black dot that pulses with voice"
         }
     }
 }
 
 struct AnimationConfig: Codable {
-    var style: AnimationStyle = .glow
+    var style: AnimationStyle = .dot
     var primaryColor: String = "#007AFF"  // Apple Blue
     var secondaryColor: String = "#5856D6" // Purple accent
     var opacity: Double = 0.9
@@ -37,7 +39,7 @@ struct AnimationConfig: Codable {
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        style = try container.decodeIfPresent(AnimationStyle.self, forKey: .style) ?? .glow
+        style = try container.decodeIfPresent(AnimationStyle.self, forKey: .style) ?? .dot
         primaryColor = try container.decodeIfPresent(String.self, forKey: .primaryColor) ?? "#007AFF"
         secondaryColor = try container.decodeIfPresent(String.self, forKey: .secondaryColor) ?? "#5856D6"
         opacity = try container.decodeIfPresent(Double.self, forKey: .opacity) ?? 0.9

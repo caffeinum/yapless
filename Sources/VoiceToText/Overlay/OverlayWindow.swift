@@ -5,6 +5,7 @@ import Carbon.HIToolbox
 final class OverlayWindow: NSWindow {
     private let animationConfig: AnimationConfig
     private var animationView: AnimationView?
+    private var micLabel: NSTextField?
     private var keyMonitor: Any?
     private var clickMonitor: Any?
     private var eventTap: CFMachPort?
@@ -36,8 +37,8 @@ final class OverlayWindow: NSWindow {
             return NSRect(x: 0, y: 0, width: 200, height: 200)
         }
 
-        // Glow style needs fullscreen
-        if config.style == .glow {
+        // Glow + dot styles need fullscreen
+        if config.style == .glow || config.style == .dot {
             return screen.frame
         }
 
@@ -237,6 +238,8 @@ final class OverlayWindow: NSWindow {
             animationView = NewSiriAnimationView(config: animationConfig)
         case .cursor:
             animationView = NewOrbAnimationView(config: animationConfig)  // Orb follows cursor
+        case .dot:
+            animationView = NewDotCursorAnimationView(config: animationConfig)
         }
 
         animationView.frame = contentView?.bounds ?? .zero
@@ -244,6 +247,56 @@ final class OverlayWindow: NSWindow {
         contentView?.addSubview(animationView)
 
         self.animationView = animationView
+    }
+
+    func setMicLabel(_ text: String) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self, let contentView = self.contentView else { return }
+
+            if let existing = self.micLabel {
+                existing.stringValue = text
+                existing.sizeToFit()
+                self.layoutMicLabel()
+                return
+            }
+
+            let label = NSTextField(labelWithString: text)
+            label.font = NSFont.systemFont(ofSize: 11, weight: .medium)
+            label.textColor = NSColor.white.withAlphaComponent(0.85)
+            label.backgroundColor = NSColor.black.withAlphaComponent(0.45)
+            label.drawsBackground = true
+            label.isBezeled = false
+            label.isEditable = false
+            label.alignment = .center
+            label.wantsLayer = true
+            label.layer?.cornerRadius = 6
+            label.layer?.masksToBounds = true
+            label.translatesAutoresizingMaskIntoConstraints = false
+            label.sizeToFit()
+
+            contentView.addSubview(label, positioned: .above, relativeTo: nil)
+            self.micLabel = label
+            self.layoutMicLabel()
+        }
+    }
+
+    private func layoutMicLabel() {
+        guard let label = micLabel, let contentView = contentView else { return }
+        let labelSize = label.fittingSize
+        let padding: CGFloat = 16
+        let width = labelSize.width + padding
+        let height: CGFloat = 20
+
+        let bounds = contentView.bounds
+        let topInset: CGFloat = animationConfig.style == .glow ? 60 : 8
+        let frame = NSRect(
+            x: (bounds.width - width) / 2,
+            y: bounds.height - height - topInset,
+            width: width,
+            height: height
+        )
+        label.frame = frame
+        label.autoresizingMask = [.minXMargin, .maxXMargin, .minYMargin]
     }
 
     func updateAudioLevel(_ level: Float) {
@@ -328,6 +381,11 @@ final class OverlayWindow: NSWindow {
         releaseKeyboard()  // Allow keystrokes again before paste
     }
 
+    func showErrorState() {
+        animationView?.showErrorAnimation()
+        releaseKeyboard()
+    }
+
     /// Release keyboard control to allow keystrokes to pass through
     func releaseKeyboard() {
         if let eventTap = eventTap {
@@ -366,4 +424,13 @@ protocol AnimationView: NSView {
     func startRecordingAnimation()
     func startProcessingAnimation()
     func showCompletionAnimation()
+    func showErrorAnimation()
+}
+
+extension AnimationView {
+    // Default: most styles can reuse the completion visual when erroring.
+    // Dot/glow/siri override to switch to red.
+    func showErrorAnimation() {
+        showCompletionAnimation()
+    }
 }

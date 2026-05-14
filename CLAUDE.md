@@ -42,8 +42,21 @@ priority: groq api (if GROQ_API_KEY) → local whisper → whisper-cpp → whisp
 - 3 retries with exponential backoff for final transcription
 - Esc during processing cancels but keeps audio file
 
+## animation styles
+
+- `dot` (default): system cursor is hidden, replaced by a black dot that pulses with audio volume. blue while transcribing, green on complete, red on error. fullscreen transparent overlay.
+- `glow`, `siri`: also fullscreen
+- `orb`, `waveform`: small windowed
+- `cursor`: orb that follows cursor
+
+animation `AnimationState` enum: `.recording` / `.processing` / `.complete` / `.error`. error display is held ~1.2s before close. dot mode keeps cursor hidden through completion/error — only deinit unhides.
+
 ## gotchas
 
 - event tap requires accessibility permission
+- **mic permission**: `AVCaptureDevice.requestAccess` is called from `AppController.startRecording`. CLI binaries get silent denial unless granted in System Settings → Privacy & Security → Microphone. without it, AVAudioEngine returns zero buffers with no error.
+- **AVAudioEngine + device binding**: AVAudioEngine.inputNode doesn't reliably follow the system default input. we explicitly bind it via CoreAudio `kAudioOutputUnitProperty_CurrentDevice` on the inputNode's AUHAL after creating the engine. without this, capture can silently land on a stale/virtual device.
+- **WAV header**: `AVAudioFile` only finalizes the WAV header (audio-bytes field, etc.) on deinit. `stopRecording` must drop the `audioFile` reference before handing the URL to transcription — otherwise the file has 176KB of PCM but a header claiming 0 bytes, and Whisper hallucinates "you" from the silence.
+- diagnostic logging in AudioCapture prints `Audio stats: N buffers, peak=X, avgRMS=Y` every ~1s; peak=0 means the mic is silent (perms or routing).
 - XCTest doesn't work with swift package manager on this project (pre-existing issue)
 - config was renamed from `~/.config/voice-to-text/` to `~/.config/yapless/` - migrate manually if needed

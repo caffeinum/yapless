@@ -71,6 +71,7 @@ enum AnimationState {
     case recording
     case processing
     case complete
+    case error
 }
 
 // MARK: - Observable Animation Model
@@ -441,6 +442,10 @@ final class NewGlowAnimationView: NSView, AnimationView {
     func showCompletionAnimation() {
         model.state = .complete
     }
+
+    func showErrorAnimation() {
+        model.state = .error
+    }
 }
 
 struct GlowAnimationContent: View {
@@ -466,6 +471,8 @@ struct GlowAnimationContent: View {
             return [.orange, .yellow, .orange, .yellow]
         case .complete:
             return [.green, .mint, .green, .mint]
+        case .error:
+            return [.red, .pink, .red, .pink]
         }
     }
 
@@ -553,6 +560,10 @@ final class NewSiriAnimationView: NSView, AnimationView {
     func showCompletionAnimation() {
         model.state = .complete
     }
+
+    func showErrorAnimation() {
+        model.state = .error
+    }
 }
 
 struct SiriAnimationContent: View {
@@ -624,11 +635,14 @@ struct SiriWaveLine: View {
             return colors[index % colors.count]
         case .recording:
             return color
+        case .error:
+            let colors = [Color.red, Color.pink, Color.red, Color.pink]
+            return colors[index % colors.count]
         }
     }
 
     private var isAnimating: Bool {
-        state == .processing || state == .complete
+        state == .processing || state == .complete || state == .error
     }
 
     var body: some View {
@@ -671,6 +685,159 @@ struct SiriWaveShape: Shape {
         }
 
         return path
+    }
+}
+
+// MARK: - Dot Cursor Animation (cursor becomes a black dot that pulses with volume)
+
+final class NewDotCursorAnimationView: NSView, AnimationView {
+    let config: AnimationConfig
+    private let hostingView: NSHostingView<DotCursorAnimationContent>
+    private let model = AnimationModel()
+    private var cursorHidden = false
+
+    init(config: AnimationConfig) {
+        self.config = config
+        self.hostingView = NSHostingView(rootView: DotCursorAnimationContent(model: model, config: config))
+
+        super.init(frame: .zero)
+
+        hostingView.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(hostingView)
+
+        NSLayoutConstraint.activate([
+            hostingView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            hostingView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            hostingView.topAnchor.constraint(equalTo: topAnchor),
+            hostingView.bottomAnchor.constraint(equalTo: bottomAnchor)
+        ])
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func updateAudioLevel(_ level: Float) {
+        model.updateAudioLevel(CGFloat(level))
+    }
+
+    func updateSpectrum(_ bands: [Float]) {}
+
+    func startRecordingAnimation() {
+        model.state = .recording
+        if !cursorHidden {
+            NSCursor.hide()
+            cursorHidden = true
+        }
+    }
+
+    func startProcessingAnimation() {
+        model.state = .processing
+    }
+
+    func showCompletionAnimation() {
+        model.state = .complete
+        // Keep cursor hidden — deinit unhides when the overlay closes.
+    }
+
+    func showErrorAnimation() {
+        model.state = .error
+        // Keep cursor hidden — deinit unhides when the overlay closes.
+    }
+
+    deinit {
+        if cursorHidden {
+            NSCursor.unhide()
+        }
+    }
+}
+
+struct DotCursorAnimationContent: View {
+    @ObservedObject var model: AnimationModel
+    let config: AnimationConfig
+
+    var body: some View {
+        TimelineView(.animation) { timeline in
+            DotCursorFrame(
+                time: timeline.date.timeIntervalSinceReferenceDate,
+                level: model.smoothedLevel,
+                state: model.state
+            )
+        }
+    }
+}
+
+struct DotCursorFrame: View {
+    let time: Double
+    let level: CGFloat
+    let state: AnimationState
+
+    var body: some View {
+        let mouseGlobal = NSEvent.mouseLocation
+        let screenFrame = NSScreen.main?.frame ?? .zero
+        let localX = mouseGlobal.x - screenFrame.minX
+        let localY = screenFrame.maxY - mouseGlobal.y
+
+        let baseSize: CGFloat = 22
+        let maxBoost: CGFloat = 70
+        let pulse: CGFloat = {
+            switch state {
+            case .processing: return 12 + CGFloat(sin(time * 4)) * 6
+            case .complete: return 14
+            case .error: return 12 + CGFloat(sin(time * 6)) * 4
+            case .recording: return 0
+            }
+        }()
+        let dotSize = baseSize + level * maxBoost + pulse
+
+        let dotColor: Color = {
+            switch state {
+            case .recording: return .black
+            case .processing: return Color(red: 0.15, green: 0.55, blue: 1.0)
+            case .complete: return Color(red: 0.16, green: 0.78, blue: 0.36)
+            case .error: return Color(red: 0.95, green: 0.25, blue: 0.25)
+            }
+        }()
+
+        let ringSize: CGFloat = {
+            switch state {
+            case .processing: return dotSize + 14 + CGFloat(sin(time * 3)) * 6
+            case .error: return dotSize + 10
+            default: return dotSize
+            }
+        }()
+
+        let ringColor: Color = {
+            switch state {
+            case .processing: return Color.white.opacity(0.9)
+            case .error: return Color.white.opacity(0.9)
+            default: return Color.white.opacity(0.65)
+            }
+        }()
+
+        return ZStack {
+            Color.clear
+
+            if state == .processing || state == .error {
+                Circle()
+                    .stroke(ringColor, lineWidth: 2)
+                    .frame(width: ringSize, height: ringSize)
+                    .position(x: localX, y: localY)
+                    .shadow(color: .black.opacity(0.4), radius: 4)
+            }
+
+            Circle()
+                .fill(dotColor)
+                .frame(width: dotSize, height: dotSize)
+                .position(x: localX, y: localY)
+                .shadow(color: dotColor.opacity(0.6), radius: 12, x: 0, y: 0)
+                .shadow(color: .black.opacity(0.5), radius: 6, x: 0, y: 1)
+
+            Circle()
+                .stroke(Color.white.opacity(0.75), lineWidth: 1.5)
+                .frame(width: dotSize, height: dotSize)
+                .position(x: localX, y: localY)
+        }
     }
 }
 

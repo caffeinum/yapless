@@ -34,18 +34,63 @@ final class AppController {
 
     func startRecording() {
         guard !isRecording else { return }
+
+        let status = AVCaptureDevice.authorizationStatus(for: .audio)
+        print("Mic auth status: \(Self.describe(status))")
+
+        switch status {
+        case .authorized:
+            beginRecording()
+        case .notDetermined:
+            print("Requesting microphone access…")
+            audioCapture.requestPermission { [weak self] granted in
+                if granted {
+                    self?.beginRecording()
+                } else {
+                    self?.failPermission()
+                }
+            }
+        case .denied, .restricted:
+            failPermission()
+        @unknown default:
+            failPermission()
+        }
+    }
+
+    private static func describe(_ status: AVAuthorizationStatus) -> String {
+        switch status {
+        case .authorized: return "authorized"
+        case .notDetermined: return "notDetermined"
+        case .denied: return "denied"
+        case .restricted: return "restricted"
+        @unknown default: return "unknown(\(status.rawValue))"
+        }
+    }
+
+    private func failPermission() {
+        let path = Bundle.main.executablePath ?? "yapless"
+        print("ERROR: microphone access denied.")
+        print("Open System Settings → Privacy & Security → Microphone and enable:")
+        print("  \(path)")
+        print("Then re-run yapless. (May require dragging the binary in if it does not appear.)")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            NSApplication.shared.terminate(nil)
+        }
+    }
+
+    private func beginRecording() {
         isRecording = true
 
         previousApp = NSWorkspace.shared.frontmostApplication
-        NSCursor.pointingHand.push()
+        if config.animation.style != .dot {
+            NSCursor.pointingHand.push()
+        }
 
         let timestamp = ISO8601DateFormatter().string(from: Date())
         let safeTimestamp = timestamp.replacingOccurrences(of: ":", with: "-")
         recordingTimestamp = safeTimestamp
 
-        if config.animation.style != .cursor || true {
-            showOverlay()
-        }
+        showOverlay()
 
         audioCapture.startRecording { [weak self] audioURL in
             self?.processRecording(at: audioURL)
@@ -78,11 +123,19 @@ final class AppController {
             self?.cancelTranscription()
         }
         overlayWindow?.showRecordingState()
+
+        if let info = AudioCapture.defaultInputDeviceInfo() {
+            overlayWindow?.setMicLabel("mic: \(info.name)")
+        } else {
+            overlayWindow?.setMicLabel("mic: <unknown>")
+        }
     }
 
     private func cancelTranscription() {
         print("Transcription cancelled (draft preserved)")
-        NSCursor.pop()
+        if config.animation.style != .dot {
+            NSCursor.pop()
+        }
         hideOverlay()
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
@@ -136,7 +189,9 @@ final class AppController {
         overlayWindow?.showCompletionState()
 
         // Restore cursor
-        NSCursor.pop()
+        if config.animation.style != .dot {
+            NSCursor.pop()
+        }
 
         // Restore focus to original app before pasting
         if let app = previousApp {
@@ -159,11 +214,16 @@ final class AppController {
 
     private func handleTranscriptionError(_ error: Error) {
         print("Transcription error: \(error.localizedDescription)")
-        NSCursor.pop()
-        hideOverlay()
+        overlayWindow?.showErrorState()
+        if config.animation.style != .dot {
+            NSCursor.pop()
+        }
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-            NSApplication.shared.terminate(nil)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in
+            self?.hideOverlay()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                NSApplication.shared.terminate(nil)
+            }
         }
     }
 }
