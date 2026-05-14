@@ -14,11 +14,26 @@ final class AppController {
     private var currentRecordingURL: URL?
     private var recordingTimestamp: String?
 
-    init(config: Config) {
+    init(config: Config, inputDeviceQuery: String? = nil) {
         self.config = config
         self.audioCapture = AudioCapture()
         self.whisperEngine = WhisperEngine(config: config.whisper)
         self.outputHandler = OutputHandler(config: config.output)
+
+        if let query = inputDeviceQuery {
+            if let match = AudioCapture.findInputDevice(matching: query) {
+                print("Selected input device by --input '\(query)': \(match.name) (id=\(match.id))")
+                self.audioCapture.preferredDevice = match
+            } else {
+                print("ERROR: no input device matched '\(query)'. Available inputs:")
+                for d in AudioCapture.allInputDevices() {
+                    print("  - \(d.name)")
+                }
+                DispatchQueue.main.async {
+                    NSApplication.shared.terminate(nil)
+                }
+            }
+        }
 
         setupCallbacks()
     }
@@ -124,7 +139,8 @@ final class AppController {
         }
         overlayWindow?.showRecordingState()
 
-        if let info = AudioCapture.defaultInputDeviceInfo() {
+        let info = audioCapture.preferredDevice ?? AudioCapture.defaultInputDeviceInfo()
+        if let info = info {
             overlayWindow?.setMicLabel("mic: \(info.name)")
         } else {
             overlayWindow?.setMicLabel("mic: <unknown>")

@@ -34,10 +34,35 @@ struct VoiceToText: ParsableCommand {
     @Option(name: .shortAndLong, help: "Transcribe an audio file (path or 'latest')")
     var transcribe: String?
 
+    @Option(name: [.customShort("i"), .long], help: "Input device name (substring match, e.g. 'AirPods' or 'MacBook')")
+    var input: String?
+
+    @Flag(name: .long, help: "List available input devices and exit")
+    var listInputs: Bool = false
+
     @Flag(name: .long, help: "Show animation showcase window")
     var showcase = false
 
     mutating func run() throws {
+        // Line-buffer stdout/stderr so diagnostics survive abrupt exits and pipes.
+        setvbuf(stdout, nil, _IOLBF, 0)
+        setvbuf(stderr, nil, _IOLBF, 0)
+
+        if listInputs {
+            let devices = AudioCapture.allInputDevices()
+            if devices.isEmpty {
+                print("No input devices found.")
+            } else {
+                let defaultID = AudioCapture.defaultInputDeviceInfo()?.id
+                print("Available input devices:")
+                for d in devices {
+                    let marker = d.id == defaultID ? " (default)" : ""
+                    print("  \(d.name) [id=\(d.id), \(Int(d.sampleRate))Hz, \(d.channels)ch]\(marker)")
+                }
+            }
+            throw ExitCode.success
+        }
+
         if let transcribePath = transcribe {
             let audioURL: URL
 
@@ -127,7 +152,7 @@ struct VoiceToText: ParsableCommand {
         }
 
         // Initialize the app controller
-        let controller = AppController(config: finalConfig)
+        let controller = AppController(config: finalConfig, inputDeviceQuery: input)
 
         if record {
             controller.startRecording()

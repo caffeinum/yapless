@@ -16,6 +16,10 @@ final class AudioCapture {
 
     private var completionHandler: ((URL) -> Void)?
     private let recordingFormat: AVAudioFormat
+    /// If set, overrides the system default input for this capture.
+    var preferredDevice: InputDeviceInfo?
+    /// Saved system default before we switched it; restored on stopRecording.
+    private var savedSystemDefaultDeviceID: AudioDeviceID?
     private var bufferCount: Int = 0
     private var bufferMaxSample: Float = 0
     private var bufferRMSSum: Float = 0
@@ -54,10 +58,26 @@ final class AudioCapture {
 
         guard let recordingURL = recordingURL else { return }
 
-        if let info = Self.defaultInputDeviceInfo() {
-            print("Input device: \(info.name) [uid=\(info.uid), id=\(info.id), \(Int(info.sampleRate))Hz, \(info.channels)ch]")
+        let resolvedDevice = preferredDevice ?? Self.defaultInputDeviceInfo()
+        if let info = resolvedDevice {
+            let source = preferredDevice != nil ? "override" : "system default"
+            print("Input device (\(source)): \(info.name) [uid=\(info.uid), id=\(info.id), \(Int(info.sampleRate))Hz, \(info.channels)ch]")
         } else {
             print("Input device: <unknown — could not query CoreAudio>")
+        }
+
+        // If the user requested a specific input via --input, switch the SYSTEM default
+        // BEFORE the engine is created. AVAudioEngine.inputNode is bound to the system
+        // default at engine init; rebinding later via AudioUnitSetProperty corrupts the
+        // tap. We restore the previous default in stopRecording.
+        if let override = preferredDevice {
+            savedSystemDefaultDeviceID = Self.currentDefaultInputDeviceID()
+            if Self.setDefaultInputDevice(override.id) {
+                print("Temporarily switched system default input to: \(override.name) (will restore on stop)")
+            } else {
+                print("ERROR: could not switch system default input to \(override.name) — aborting")
+                return
+            }
         }
 
         do {
@@ -65,26 +85,6 @@ final class AudioCapture {
             guard let audioEngine = audioEngine else { return }
 
             let inputNode = audioEngine.inputNode
-
-            // Force the engine's input AUHAL to the current system default input.
-            // Without this, AVAudioEngine can silently bind to a different/stale device.
-            if let deviceID = Self.defaultInputDeviceInfo()?.id, let inputUnit = inputNode.audioUnit {
-                var devID = deviceID
-                let status = AudioUnitSetProperty(
-                    inputUnit,
-                    kAudioOutputUnitProperty_CurrentDevice,
-                    kAudioUnitScope_Global,
-                    0,
-                    &devID,
-                    UInt32(MemoryLayout<AudioDeviceID>.size)
-                )
-                if status != noErr {
-                    print("Warning: failed to bind input device (OSStatus \(status))")
-                } else {
-                    print("Bound AVAudioEngine input to device id \(deviceID)")
-                }
-            }
-
             let inputFormat = inputNode.outputFormat(forBus: 0)
             print("Input format: \(Int(inputFormat.sampleRate))Hz, \(inputFormat.channelCount)ch")
 
@@ -129,7 +129,10 @@ final class AudioCapture {
     }
 
     func stopRecording() {
-        guard let audioEngine = audioEngine else { return }
+        guard let audioEngine = audioEngine else {
+            restoreSystemDefaultIfNeeded()
+            return
+        }
 
         audioEngine.inputNode.removeTap(onBus: 0)
         audioEngine.stop()
@@ -137,6 +140,7 @@ final class AudioCapture {
         self.audioEngine = nil
         self.audioFile = nil  // dropping the reference flushes/finalizes the WAV header
 
+        restoreSystemDefaultIfNeeded()
         print("Recording stopped")
 
         if let recordingURL = recordingURL {
@@ -266,6 +270,46 @@ final class AudioCapture {
         let channels: UInt32
     }
 
+    private func restoreSystemDefaultIfNeeded() {
+        guard let saved = savedSystemDefaultDeviceID else { return }
+        savedSystemDefaultDeviceID = nil
+        if Self.setDefaultInputDevice(saved) {
+            let name = Self.stringProperty(saved, kAudioObjectPropertyName) ?? "<unnamed>"
+            print("Restored system default input to: \(name)")
+        } else {
+            print("WARNING: failed to restore system default input device")
+        }
+    }
+
+    static func currentDefaultInputDeviceID() -> AudioDeviceID? {
+        var deviceID = AudioDeviceID(0)
+        var size = UInt32(MemoryLayout<AudioDeviceID>.size)
+        var addr = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDefaultInputDevice,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        let status = AudioObjectGetPropertyData(
+            AudioObjectID(kAudioObjectSystemObject), &addr, 0, nil, &size, &deviceID
+        )
+        return (status == noErr && deviceID != 0) ? deviceID : nil
+    }
+
+    @discardableResult
+    static func setDefaultInputDevice(_ id: AudioDeviceID) -> Bool {
+        var devID = id
+        var addr = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDefaultInputDevice,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        let status = AudioObjectSetPropertyData(
+            AudioObjectID(kAudioObjectSystemObject), &addr, 0, nil,
+            UInt32(MemoryLayout<AudioDeviceID>.size), &devID
+        )
+        return status == noErr
+    }
+
     static func defaultInputDeviceInfo() -> InputDeviceInfo? {
         var deviceID = AudioDeviceID(0)
         var size = UInt32(MemoryLayout<AudioDeviceID>.size)
@@ -278,7 +322,42 @@ final class AudioCapture {
             AudioObjectID(kAudioObjectSystemObject), &addr, 0, nil, &size, &deviceID
         )
         guard status == noErr, deviceID != 0 else { return nil }
+        return makeInfo(for: deviceID)
+    }
 
+    static func allInputDevices() -> [InputDeviceInfo] {
+        var addr = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDevices,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var size: UInt32 = 0
+        guard AudioObjectGetPropertyDataSize(AudioObjectID(kAudioObjectSystemObject), &addr, 0, nil, &size) == noErr, size > 0 else {
+            return []
+        }
+        let count = Int(size) / MemoryLayout<AudioDeviceID>.size
+        var deviceIDs = [AudioDeviceID](repeating: 0, count: count)
+        guard AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &addr, 0, nil, &size, &deviceIDs) == noErr else {
+            return []
+        }
+        return deviceIDs.compactMap { id in
+            guard inputChannelCount(id) > 0 else { return nil }  // input-capable only
+            return makeInfo(for: id)
+        }
+    }
+
+    /// Find an input device by case-insensitive substring match on its name.
+    static func findInputDevice(matching query: String) -> InputDeviceInfo? {
+        let lower = query.lowercased()
+        let devices = allInputDevices()
+        // Prefer exact match first, then substring.
+        if let exact = devices.first(where: { $0.name.lowercased() == lower }) {
+            return exact
+        }
+        return devices.first { $0.name.lowercased().contains(lower) }
+    }
+
+    private static func makeInfo(for deviceID: AudioDeviceID) -> InputDeviceInfo {
         return InputDeviceInfo(
             id: deviceID,
             name: stringProperty(deviceID, kAudioObjectPropertyName) ?? "<unnamed>",
