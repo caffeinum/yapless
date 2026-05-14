@@ -40,6 +40,9 @@ struct VoiceToText: ParsableCommand {
     @Flag(name: .long, help: "List available input devices and exit")
     var listInputs: Bool = false
 
+    @Option(name: .long, help: "Record for a fixed duration (seconds) without overlay/keyboard capture, then transcribe and exit")
+    var duration: Double?
+
     @Flag(name: .long, help: "Show animation showcase window")
     var showcase = false
 
@@ -154,7 +157,10 @@ struct VoiceToText: ParsableCommand {
         // Initialize the app controller
         let controller = AppController(config: finalConfig, inputDeviceQuery: input)
 
-        if record {
+        if let duration = duration {
+            print("Headless recording for \(duration)s (no overlay, no keyboard capture)")
+            controller.startHeadlessRecording(duration: duration)
+        } else if record {
             controller.startRecording()
         }
 

@@ -93,6 +93,40 @@ final class AppController {
         }
     }
 
+    /// Headless mode: record for a fixed duration, no overlay, no keyboard capture. For testing or CLI use.
+    func startHeadlessRecording(duration: Double) {
+        let status = AVCaptureDevice.authorizationStatus(for: .audio)
+        guard status == .authorized || status == .notDetermined else {
+            failPermission()
+            return
+        }
+
+        func proceed() {
+            isRecording = true
+            let timestamp = ISO8601DateFormatter().string(from: Date())
+            recordingTimestamp = timestamp.replacingOccurrences(of: ":", with: "-")
+
+            audioCapture.startRecording { [weak self] audioURL in
+                self?.processRecording(at: audioURL)
+            }
+
+            DispatchQueue.main.asyncAfter(deadline: .now() + duration) { [weak self] in
+                guard let self = self, self.isRecording else { return }
+                print("Headless: duration elapsed, stopping")
+                self.isRecording = false
+                self.audioCapture.stopRecording()
+            }
+        }
+
+        if status == .notDetermined {
+            audioCapture.requestPermission { granted in
+                if granted { proceed() } else { self.failPermission() }
+            }
+        } else {
+            proceed()
+        }
+    }
+
     private func beginRecording() {
         isRecording = true
 
@@ -114,6 +148,7 @@ final class AppController {
 
     func stopRecording(pressEnter: Bool = false) {
         guard isRecording else { return }
+        print("AppController.stopRecording called (pressEnter=\(pressEnter))")
         isRecording = false
         shouldPressEnterAfterPaste = pressEnter
 

@@ -71,12 +71,34 @@ final class AudioCapture {
         // default at engine init; rebinding later via AudioUnitSetProperty corrupts the
         // tap. We restore the previous default in stopRecording.
         if let override = preferredDevice {
-            savedSystemDefaultDeviceID = Self.currentDefaultInputDeviceID()
-            if Self.setDefaultInputDevice(override.id) {
-                print("Temporarily switched system default input to: \(override.name) (will restore on stop)")
+            let currentDefault = Self.currentDefaultInputDeviceID()
+            if currentDefault == override.id {
+                // Already on the target — DO NOT re-set, that triggers a device reset
+                // which confuses AVAudioEngine's format detection (saw 24000Hz device
+                // get reported as 48000Hz, then zero buffers).
+                print("System default already on \(override.name) — skipping swap")
+                savedSystemDefaultDeviceID = nil
             } else {
-                print("ERROR: could not switch system default input to \(override.name) — aborting")
-                return
+                savedSystemDefaultDeviceID = currentDefault
+                if !Self.setDefaultInputDevice(override.id) {
+                    print("ERROR: could not switch system default input to \(override.name) — aborting")
+                    return
+                }
+                let deadline = Date().addingTimeInterval(1.0)
+                var actualID = Self.currentDefaultInputDeviceID()
+                while actualID != override.id && Date() < deadline {
+                    Thread.sleep(forTimeInterval: 0.02)
+                    actualID = Self.currentDefaultInputDeviceID()
+                }
+                if actualID == override.id {
+                    // Give the device a moment to stabilize after the switch.
+                    Thread.sleep(forTimeInterval: 0.25)
+                    print("Switched system default input to: \(override.name) (will restore on stop)")
+                } else {
+                    print("ERROR: system default did not switch to \(override.name) within 1s — aborting")
+                    restoreSystemDefaultIfNeeded()
+                    return
+                }
             }
         }
 

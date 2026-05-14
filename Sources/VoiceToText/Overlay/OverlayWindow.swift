@@ -166,6 +166,7 @@ final class OverlayWindow: NSWindow {
 
                 // Enter (36) - stop and send
                 if keyCode == 36 {
+                    print("Event tap: Enter (36) → stop+send")
                     DispatchQueue.main.async {
                         window.onStopRequested?(true)
                     }
@@ -174,6 +175,7 @@ final class OverlayWindow: NSWindow {
 
                 // Space (49), Escape (53) - stop without send
                 if keyCode == 49 || keyCode == 53 {
+                    print("Event tap: keyCode \(keyCode) → stop")
                     DispatchQueue.main.async {
                         window.onStopRequested?(false)
                     }
