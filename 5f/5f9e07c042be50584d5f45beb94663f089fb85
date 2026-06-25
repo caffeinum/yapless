@@ -1,0 +1,19 @@
+Sources/VoiceToText/Whisper/WhisperEngine.swift
+  s_c6e0c84cbfa6ec::t_f1e0a4a7459758 208
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.13",
+  "base_commit_sha": "5f5f9e07c042be50584d5f45beb94663f089fb85",
+  "prompts": {},
+  "sessions": {
+    "s_c6e0c84cbfa6ec": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2d5cb4b2-2c14-48f7-8d27-3b5112d794e7",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Aleksey Bykhun <theisease@gmail.com>"
+    }
+  }
+}
