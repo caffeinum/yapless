@@ -36,12 +36,20 @@ Sources/VoiceToText/
 
 `WhisperEngine` builds an ordered **fallback chain** at init (`providers: [WhisperVariant]`) and walks it until one succeeds:
 
-- `auto`/`groq`: groq api (if key) → first local whisper found (openai-whisper → whisper-cpp → whisperkit)
+- `auto`: groq (if key) → replicate (if token) → first local whisper found
+- `groq`: groq (if key) → local
+- `replicate`: replicate (if token) → local
 - `local`/`openai`: local only (openai api not wired up yet, `.openai` == local)
 
-groq is retried 3× with exponential backoff (transient net/api errors); local backends are tried once each. if groq's key is missing OR the api fails (down, overdue billing, rate limit), it automatically falls through to local — no manual switch needed.
+local order: openai-whisper → whisper-cpp → whisperkit (first binary found wins).
 
-override the config backend per-run with `--backend auto|groq|local`.
+cloud backends (groq, replicate) are retried 3× with exponential backoff (transient net/api errors); local backends are tried once each. if a cloud provider's key is missing OR the api fails (down, overdue billing, rate limit), it automatically falls through to the next link — no manual switch needed.
+
+**replicate**: uses `vaibhavs10/incredibly-fast-whisper` (pinned version). audio is sent inline as a base64 `data:` URI (no upload step), then the prediction is polled until terminal (~3 min cap). token from `config.whisper.replicateApiToken` or `REPLICATE_API_TOKEN` env.
+
+**groq**: `whisper-large-v3`. key from `config.whisper.groqApiKey` or `GROQ_API_KEY` env.
+
+override the config backend per-run with `--backend auto|groq|replicate|local`.
 
 ## safety net features
 

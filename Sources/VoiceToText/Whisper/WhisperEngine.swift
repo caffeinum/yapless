@@ -5,6 +5,7 @@ enum WhisperVariant {
     case openaiWhisper
     case whisperKit
     case groq
+    case replicate
 }
 
 /// Whisper transcription engine - supports multiple backends
@@ -14,6 +15,7 @@ final class WhisperEngine {
     private var providers: [WhisperVariant] = []
     private var whisperPath: String?
     private var groqApiKey: String?
+    private var replicateToken: String?
 
     enum WhisperError: Error, LocalizedError {
         case binaryNotFound
@@ -41,18 +43,32 @@ final class WhisperEngine {
     }
 
     private func detectBackend() {
-        // Check for Groq API key first
+        // Resolve cloud credentials (config takes precedence over env).
         groqApiKey = config.groqApiKey ?? ProcessInfo.processInfo.environment["GROQ_API_KEY"]
+        replicateToken = config.replicateApiToken ?? ProcessInfo.processInfo.environment["REPLICATE_API_TOKEN"]
 
         // Build an ordered fallback chain. Cloud providers (fast) come first,
         // local whisper is always appended last so transcription still works
         // when the network or the API is down.
         switch config.backend {
-        case .groq, .auto:
+        case .auto:
+            if groqApiKey != nil { providers.append(.groq) }
+            if replicateToken != nil { providers.append(.replicate) }
+            detectLocalWhisperBinary()
+
+        case .groq:
             if groqApiKey != nil {
                 providers.append(.groq)
             } else {
                 fputs("Groq API key not found, using local whisper\n", stderr)
+            }
+            detectLocalWhisperBinary()
+
+        case .replicate:
+            if replicateToken != nil {
+                providers.append(.replicate)
+            } else {
+                fputs("Replicate token not found (set REPLICATE_API_TOKEN), using local whisper\n", stderr)
             }
             detectLocalWhisperBinary()
 
@@ -134,7 +150,8 @@ final class WhisperEngine {
             // errors); local backends are deterministic, so we try them once
             // before moving on.
             for variant in self.providers {
-                let attempts = (variant == .groq) ? maxRetries : 1
+                let isCloud = (variant == .groq || variant == .replicate)
+                let attempts = isCloud ? maxRetries : 1
 
                 for attempt in 0..<attempts {
                     if attempt > 0 {
@@ -144,9 +161,12 @@ final class WhisperEngine {
 
                     do {
                         let text: String
-                        if variant == .groq {
+                        switch variant {
+                        case .groq:
                             text = try self.transcribeWithGroq(audioPath: audioURL.path)
-                        } else {
+                        case .replicate:
+                            text = try self.transcribeWithReplicate(audioPath: audioURL.path)
+                        default:
                             text = try self.transcribeLocally(variant: variant, audioPath: audioURL.path)
                         }
                         completion(.success(text))
@@ -245,6 +265,138 @@ final class WhisperEngine {
         return result?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
     }
 
+    // MARK: - Replicate API
+
+    /// incredibly-fast-whisper on Replicate. Uploads the audio inline as a
+    /// base64 data URI, creates a prediction, then polls until it completes.
+    private func transcribeWithReplicate(audioPath: String) throws -> String {
+        guard let token = replicateToken else {
+            throw WhisperError.apiKeyMissing
+        }
+
+        // Pinned version of vaibhavs10/incredibly-fast-whisper.
+        let version = "3ab86df6c8f54c11309d4d1f930ac292bad43ace52d10c80d87eb258b3c9f79c"
+
+        let audioData = try Data(contentsOf: URL(fileURLWithPath: audioPath))
+        let mime = mimeType(forPath: audioPath)
+        let dataURI = "data:\(mime);base64,\(audioData.base64EncodedString())"
+
+        var input: [String: Any] = [
+            "audio": dataURI,
+            "task": "transcribe",
+            "timestamp": "chunk",
+            "batch_size": 64,
+            "diarise_audio": false
+        ]
+        if let language = config.language {
+            input["language"] = language
+        }
+
+        let createBody = try JSONSerialization.data(withJSONObject: [
+            "version": version,
+            "input": input
+        ])
+
+        // Create the prediction.
+        var createReq = URLRequest(url: URL(string: "https://api.replicate.com/v1/predictions")!)
+        createReq.httpMethod = "POST"
+        createReq.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        createReq.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        createReq.httpBody = createBody
+
+        var prediction = try replicateRequest(createReq)
+
+        // Poll until the prediction reaches a terminal state.
+        let terminal: Set<String> = ["succeeded", "failed", "canceled"]
+        var status = prediction["status"] as? String ?? "starting"
+        var polls = 0
+        let maxPolls = 120  // ~3 min at 1.5s
+
+        while !terminal.contains(status) {
+            if polls >= maxPolls {
+                throw WhisperError.transcriptionFailed("Replicate prediction timed out")
+            }
+            Thread.sleep(forTimeInterval: 1.5)
+            polls += 1
+
+            guard let urls = prediction["urls"] as? [String: Any],
+                  let getURL = urls["get"] as? String,
+                  let url = URL(string: getURL) else {
+                throw WhisperError.transcriptionFailed("Replicate response missing poll URL")
+            }
+            var pollReq = URLRequest(url: url)
+            pollReq.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            prediction = try replicateRequest(pollReq)
+            status = prediction["status"] as? String ?? status
+        }
+
+        guard status == "succeeded" else {
+            let detail = prediction["error"] as? String ?? status
+            throw WhisperError.transcriptionFailed("Replicate \(status): \(detail)")
+        }
+
+        return try parseReplicateOutput(prediction["output"])
+    }
+
+    /// Run a Replicate request synchronously and decode the JSON body.
+    private func replicateRequest(_ request: URLRequest) throws -> [String: Any] {
+        var json: [String: Any]?
+        var requestError: Error?
+        let semaphore = DispatchSemaphore(value: 0)
+
+        let task = URLSession.shared.dataTask(with: request) { data, _, error in
+            defer { semaphore.signal() }
+            if let error = error { requestError = error; return }
+            guard let data = data else {
+                requestError = WhisperError.transcriptionFailed("No data from Replicate")
+                return
+            }
+            if let parsed = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                json = parsed
+            } else {
+                let body = String(data: data, encoding: .utf8) ?? "Unknown response"
+                requestError = WhisperError.transcriptionFailed(body)
+            }
+        }
+        task.resume()
+        semaphore.wait()
+
+        if let error = requestError { throw error }
+        guard let json = json else {
+            throw WhisperError.transcriptionFailed("Empty Replicate response")
+        }
+        // Surface API-level errors (e.g. invalid token, bad version).
+        if let detail = json["detail"] as? String, json["status"] == nil, json["output"] == nil {
+            throw WhisperError.transcriptionFailed(detail)
+        }
+        return json
+    }
+
+    /// incredibly-fast-whisper returns `{ text, chunks }`; tolerate string/array too.
+    private func parseReplicateOutput(_ output: Any?) throws -> String {
+        if let text = output as? String {
+            return text.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        if let dict = output as? [String: Any], let text = dict["text"] as? String {
+            return text.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        if let array = output as? [String] {
+            return array.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        throw WhisperError.transcriptionFailed("Unexpected Replicate output format")
+    }
+
+    private func mimeType(forPath path: String) -> String {
+        switch (path as NSString).pathExtension.lowercased() {
+        case "wav": return "audio/wav"
+        case "flac": return "audio/flac"
+        case "mp3": return "audio/mpeg"
+        case "m4a": return "audio/mp4"
+        case "ogg": return "audio/ogg"
+        default: return "audio/wav"
+        }
+    }
+
     // MARK: - Local Transcription
 
     private func transcribeLocally(variant: WhisperVariant, audioPath: String) throws -> String {
@@ -281,8 +433,8 @@ final class WhisperEngine {
                 "--model", config.model
             ] + (config.language.map { ["--language", $0] } ?? [])
 
-        case .groq:
-            fatalError("Should use transcribeWithGroq")
+        case .groq, .replicate:
+            fatalError("Cloud variant routed to transcribeLocally")
         }
 
         let process = Process()

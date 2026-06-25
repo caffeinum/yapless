@@ -51,6 +51,7 @@ struct AnimationConfig: Codable {
 enum TranscriptionBackend: String, Codable {
     case auto       // Auto-detect best available
     case groq       // Groq API (fastest, cloud)
+    case replicate  // Replicate API (incredibly-fast-whisper, cloud)
     case openai     // OpenAI Whisper API (cloud)
     case local      // Local whisper (openai-whisper, whisper-cpp, whisperkit)
 }
@@ -64,6 +65,7 @@ struct WhisperConfig: Codable {
     var vadThreshold: Double = 0.6
     var modelPath: String? = nil  // Custom model path, uses default if nil
     var groqApiKey: String? = nil  // Groq API key, or use GROQ_API_KEY env var
+    var replicateApiToken: String? = nil  // Replicate token, or use REPLICATE_API_TOKEN env var
 
     init() {}
 
@@ -77,6 +79,7 @@ struct WhisperConfig: Codable {
         vadThreshold = try container.decodeIfPresent(Double.self, forKey: .vadThreshold) ?? 0.6
         modelPath = try container.decodeIfPresent(String.self, forKey: .modelPath)
         groqApiKey = try container.decodeIfPresent(String.self, forKey: .groqApiKey)
+        replicateApiToken = try container.decodeIfPresent(String.self, forKey: .replicateApiToken)
     }
 }
 
