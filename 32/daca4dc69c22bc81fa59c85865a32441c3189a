@@ -1,0 +1,39 @@
+CLAUDE.md
+  s_c6e0c84cbfa6ec::t_e1afd3bdd31e1f 39-40,45,47,49-55,57-59
+Sources/VoiceToText/main.swift
+  s_c6e0c84cbfa6ec::t_8722dd108daa3a 56
+  s_c6e0c84cbfa6ec::t_f5ec9e8b3f07cd 37
+Sources/VoiceToText/Whisper/WhisperEngine.swift
+  s_c6e0c84cbfa6ec::t_4f4009c7447119 23
+  s_c6e0c84cbfa6ec::t_5dfa95356f5174 96-105
+  s_c6e0c84cbfa6ec::t_c8cd6e20692783 106-116
+  s_c6e0c84cbfa6ec::t_4ad4c762c281f1 197-202
+  s_c6e0c84cbfa6ec::t_ce52292e1bd402 53-58,65,67-68,70,74-80,82
+  s_c6e0c84cbfa6ec::t_57f3f852fd9d43 225,228-238,240-243,256-261,265,279,282
+  s_c6e0c84cbfa6ec::t_b1bc8da3661a54 21-22
+  s_c6e0c84cbfa6ec::t_69d83f0a60e907 183
+  s_c6e0c84cbfa6ec::t_991fc8efd9afa2 239,244-246,248-255
+  s_c6e0c84cbfa6ec::t_d295e13172c978 466-524
+  s_c6e0c84cbfa6ec::t_56604662c3084f 561
+  s_c6e0c84cbfa6ec::t_0f98fa7feb0d03 8-10
+Sources/VoiceToText/Config/Config.swift
+  s_c6e0c84cbfa6ec::t_8debd29827b9b1 71-73
+  s_c6e0c84cbfa6ec::t_186ced4a4333b9 88-90
+  s_c6e0c84cbfa6ec::t_a55e7331857920 54-56
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.13",
+  "base_commit_sha": "32daca4dc69c22bc81fa59c85865a32441c3189a",
+  "prompts": {},
+  "sessions": {
+    "s_c6e0c84cbfa6ec": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2d5cb4b2-2c14-48f7-8d27-3b5112d794e7",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Aleksey Bykhun <theisease@gmail.com>"
+    }
+  }
+}
