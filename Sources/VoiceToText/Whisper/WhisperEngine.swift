@@ -205,6 +205,7 @@ final class WhisperEngine {
                         default:
                             text = try self.transcribeLocally(variant: variant, audioPath: audioURL.path)
                         }
+                        fputs("Transcribed via \(variant)\n", stderr)
                         completion(.success(text))
                         return
                     } catch {
