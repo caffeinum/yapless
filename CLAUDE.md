@@ -34,12 +34,19 @@ Sources/VoiceToText/
 
 ## transcription backends
 
-priority: groq api (if GROQ_API_KEY) → local whisper → whisper-cpp → whisperkit
+`WhisperEngine` builds an ordered **fallback chain** at init (`providers: [WhisperVariant]`) and walks it until one succeeds:
+
+- `auto`/`groq`: groq api (if key) → first local whisper found (openai-whisper → whisper-cpp → whisperkit)
+- `local`/`openai`: local only (openai api not wired up yet, `.openai` == local)
+
+groq is retried 3× with exponential backoff (transient net/api errors); local backends are tried once each. if groq's key is missing OR the api fails (down, overdue billing, rate limit), it automatically falls through to local — no manual switch needed.
+
+override the config backend per-run with `--backend auto|groq|local`.
 
 ## safety net features
 
 - audio saved immediately to permanent location (survives crashes)
-- 3 retries with exponential backoff for final transcription
+- 3 retries with exponential backoff on groq, then auto-fallback to local whisper
 - Esc during processing cancels but keeps audio file
 
 ## animation styles

@@ -10,7 +10,8 @@ enum WhisperVariant {
 /// Whisper transcription engine - supports multiple backends
 final class WhisperEngine {
     private let config: WhisperConfig
-    private var detectedVariant: WhisperVariant?
+    /// Ordered fallback chain: tried in sequence until one succeeds.
+    private var providers: [WhisperVariant] = []
     private var whisperPath: String?
     private var groqApiKey: String?
 
@@ -43,28 +44,27 @@ final class WhisperEngine {
         // Check for Groq API key first
         groqApiKey = config.groqApiKey ?? ProcessInfo.processInfo.environment["GROQ_API_KEY"]
 
+        // Build an ordered fallback chain. Cloud providers (fast) come first,
+        // local whisper is always appended last so transcription still works
+        // when the network or the API is down.
         switch config.backend {
-        case .groq:
+        case .groq, .auto:
             if groqApiKey != nil {
-                detectedVariant = .groq
-                fputs("Using Groq API for transcription\n", stderr)
-                return
+                providers.append(.groq)
+            } else {
+                fputs("Groq API key not found, using local whisper\n", stderr)
             }
-            fputs("Groq API key not found, falling back to local\n", stderr)
-            fallthrough
-
-        case .auto:
-            // Prefer Groq if API key available (fastest)
-            if groqApiKey != nil {
-                detectedVariant = .groq
-                fputs("Using Groq API for transcription (auto-detected)\n", stderr)
-                return
-            }
-            // Fall through to local detection
-            fallthrough
+            detectLocalWhisperBinary()
 
         case .local, .openai:
+            // OpenAI API isn't wired up yet; treat as local-only.
             detectLocalWhisperBinary()
+        }
+
+        if providers.isEmpty {
+            fputs("No transcription backend available (no Groq key, no local whisper binary)\n", stderr)
+        } else {
+            fputs("Transcription chain: \(providers.map { "\($0)" }.joined(separator: " → "))\n", stderr)
         }
     }
 
@@ -81,8 +81,8 @@ final class WhisperEngine {
         for (path, variant) in candidates {
             if FileManager.default.fileExists(atPath: path) {
                 self.whisperPath = path
-                self.detectedVariant = variant
-                fputs("Using local whisper: \(variant) at \(path)\n", stderr)
+                self.providers.append(variant)
+                fputs("Found local whisper: \(variant) at \(path)\n", stderr)
                 return
             }
         }
@@ -101,8 +101,8 @@ final class WhisperEngine {
                 let fullPath = "\(dir)/\(name)"
                 if FileManager.default.fileExists(atPath: fullPath) {
                     self.whisperPath = fullPath
-                    self.detectedVariant = variant
-                    fputs("Using local whisper: \(variant) at \(fullPath)\n", stderr)
+                    self.providers.append(variant)
+                    fputs("Found local whisper: \(variant) at \(fullPath)\n", stderr)
                     return
                 }
             }
@@ -119,7 +119,7 @@ final class WhisperEngine {
             return
         }
 
-        guard let variant = detectedVariant else {
+        guard !providers.isEmpty else {
             completion(.failure(WhisperError.binaryNotFound))
             return
         }
@@ -130,28 +130,39 @@ final class WhisperEngine {
             var lastError: Error?
             let delays = [0.0, 1.0, 2.0, 4.0]
 
-            for attempt in 0..<maxRetries {
-                if attempt > 0 {
-                    fputs("Retry attempt \(attempt) after \(delays[attempt])s...\n", stderr)
-                    Thread.sleep(forTimeInterval: delays[attempt])
+            // Walk the fallback chain. Groq gets retried (transient network/API
+            // errors); local backends are deterministic, so we try them once
+            // before moving on.
+            for variant in self.providers {
+                let attempts = (variant == .groq) ? maxRetries : 1
+
+                for attempt in 0..<attempts {
+                    if attempt > 0 {
+                        fputs("Retry attempt \(attempt) after \(delays[attempt])s...\n", stderr)
+                        Thread.sleep(forTimeInterval: delays[attempt])
+                    }
+
+                    do {
+                        let text: String
+                        if variant == .groq {
+                            text = try self.transcribeWithGroq(audioPath: audioURL.path)
+                        } else {
+                            text = try self.transcribeLocally(variant: variant, audioPath: audioURL.path)
+                        }
+                        completion(.success(text))
+                        return
+                    } catch {
+                        lastError = error
+                        fputs("[\(variant)] attempt \(attempt + 1) failed: \(error.localizedDescription)\n", stderr)
+                    }
                 }
 
-                do {
-                    let text: String
-                    if variant == .groq {
-                        text = try self.transcribeWithGroq(audioPath: audioURL.path)
-                    } else {
-                        text = try self.transcribeLocally(variant: variant, audioPath: audioURL.path)
-                    }
-                    completion(.success(text))
-                    return
-                } catch {
-                    lastError = error
-                    fputs("Transcription attempt \(attempt + 1) failed: \(error.localizedDescription)\n", stderr)
+                if self.providers.count > 1 {
+                    fputs("[\(variant)] exhausted, falling back to next provider...\n", stderr)
                 }
             }
 
-            completion(.failure(lastError ?? WhisperError.transcriptionFailed("All retries exhausted")))
+            completion(.failure(lastError ?? WhisperError.transcriptionFailed("All providers exhausted")))
         }
     }
 

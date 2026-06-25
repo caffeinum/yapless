@@ -34,6 +34,9 @@ struct VoiceToText: ParsableCommand {
     @Option(name: .shortAndLong, help: "Transcribe an audio file (path or 'latest')")
     var transcribe: String?
 
+    @Option(name: .long, help: "Transcription backend (auto, groq, local). Overrides config.")
+    var backend: String?
+
     @Option(name: [.customShort("i"), .long], help: "Input device name (substring match, e.g. 'AirPods' or 'MacBook')")
     var input: String?
 
@@ -45,6 +48,16 @@ struct VoiceToText: ParsableCommand {
 
     @Flag(name: .long, help: "Show animation showcase window")
     var showcase = false
+
+    /// Apply the `--backend` CLI flag over whatever the config file specified.
+    private func applyBackendOverride(_ appConfig: inout Config) {
+        guard let backend = backend else { return }
+        guard let parsed = TranscriptionBackend(rawValue: backend) else {
+            fputs("Unknown backend '\(backend)', ignoring (valid: auto, groq, openai, local)\n", stderr)
+            return
+        }
+        appConfig.whisper.backend = parsed
+    }
 
     mutating func run() throws {
         // Line-buffer stdout/stderr so diagnostics survive abrupt exits and pipes.
@@ -92,13 +105,14 @@ struct VoiceToText: ParsableCommand {
             }
 
             let configPath = config ?? Config.defaultPath
-            let appConfig: Config
+            var appConfig: Config
             do {
                 appConfig = try Config.load(from: configPath)
             } catch {
                 print("Config load error: \(error)")
                 appConfig = Config()
             }
+            applyBackendOverride(&appConfig)
 
             let whisperEngine = WhisperEngine(config: appConfig.whisper)
             let semaphore = DispatchSemaphore(value: 0)
@@ -139,13 +153,14 @@ struct VoiceToText: ParsableCommand {
         // Load configuration
         let configPath = config ?? Config.defaultPath
         print("Loading config from: \(configPath)")
-        let appConfig: Config
+        var appConfig: Config
         do {
             appConfig = try Config.load(from: configPath)
         } catch {
             print("Config load error: \(error)")
             appConfig = Config()
         }
+        applyBackendOverride(&appConfig)
         print("Backend: \(appConfig.whisper.backend), API key present: \(appConfig.whisper.groqApiKey != nil)")
 
         // Override animation style if provided via CLI
