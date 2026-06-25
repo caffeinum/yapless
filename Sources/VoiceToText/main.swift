@@ -34,7 +34,7 @@ struct VoiceToText: ParsableCommand {
     @Option(name: .shortAndLong, help: "Transcribe an audio file (path or 'latest')")
     var transcribe: String?
 
-    @Option(name: .long, help: "Transcription backend (auto, groq, replicate, local). Overrides config.")
+    @Option(name: .long, help: "Transcription backend (auto, groq, deepinfra, fireworks, fal, replicate, local). Overrides config.")
     var backend: String?
 
     @Option(name: [.customShort("i"), .long], help: "Input device name (substring match, e.g. 'AirPods' or 'MacBook')")
@@ -53,7 +53,7 @@ struct VoiceToText: ParsableCommand {
     private func applyBackendOverride(_ appConfig: inout Config) {
         guard let backend = backend else { return }
         guard let parsed = TranscriptionBackend(rawValue: backend) else {
-            fputs("Unknown backend '\(backend)', ignoring (valid: auto, groq, replicate, openai, local)\n", stderr)
+            fputs("Unknown backend '\(backend)', ignoring (valid: auto, groq, deepinfra, fireworks, fal, replicate, openai, local)\n", stderr)
             return
         }
         appConfig.whisper.backend = parsed

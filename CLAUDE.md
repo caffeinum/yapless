@@ -36,20 +36,27 @@ Sources/VoiceToText/
 
 `WhisperEngine` builds an ordered **fallback chain** at init (`providers: [WhisperVariant]`) and walks it until one succeeds:
 
-- `auto`: groq (if key) → replicate (if token) → first local whisper found
-- `groq`: groq (if key) → local
-- `replicate`: replicate (if token) → local
+- `auto`: groq → deepinfra → fireworks → replicate → fal (each if credentialed) → first local whisper found
+- `groq`/`deepinfra`/`fireworks`/`fal`/`replicate`: that provider (if credentialed) → local
 - `local`/`openai`: local only (openai api not wired up yet, `.openai` == local)
 
 local order: openai-whisper → whisper-cpp → whisperkit (first binary found wins).
 
-cloud backends (groq, replicate) are retried 3× with exponential backoff (transient net/api errors); local backends are tried once each. if a cloud provider's key is missing OR the api fails (down, overdue billing, rate limit), it automatically falls through to the next link — no manual switch needed.
+cloud backends are retried 3× with exponential backoff (transient net/api errors); local backends are tried once each. if a cloud provider's key is missing OR the api fails (down, overdue billing, rate limit), it automatically falls through to the next link — no manual switch needed. `isCloudVariant()` gates the retry behavior.
 
-**replicate**: uses `vaibhavs10/incredibly-fast-whisper` (pinned version). audio is sent inline as a base64 `data:` URI (no upload step), then the prediction is polled until terminal (~3 min cap). token from `config.whisper.replicateApiToken` or `REPLICATE_API_TOKEN` env.
+all models are **whisper-large / v3** (not turbo), chosen for accuracy:
 
-**groq**: `whisper-large-v3`. key from `config.whisper.groqApiKey` or `GROQ_API_KEY` env.
+| provider | model | endpoint | shape | credential |
+|---|---|---|---|---|
+| groq | `whisper-large-v3` | `api.groq.com/openai/v1/audio/transcriptions` | OpenAI multipart | `groqApiKey` / `GROQ_API_KEY` |
+| deepinfra | `openai/whisper-large-v3` | `api.deepinfra.com/v1/openai/audio/transcriptions` | OpenAI multipart | `deepInfraApiKey` / `DEEPINFRA_API_KEY` |
+| fireworks | `whisper-v3` | `audio-prod.us-virginia-1.direct.fireworks.ai/v1/audio/transcriptions` | OpenAI multipart | `fireworksApiKey` / `FIREWORKS_API_KEY` |
+| fal | wizper `version:"3"` | `fal.run/fal-ai/wizper` | JSON, `audio_url` data URI, `Authorization: Key` | `falApiKey` / `FAL_KEY` |
+| replicate | `incredibly-fast-whisper` | `api.replicate.com/v1/predictions` | create+poll, `audio` data URI | `replicateApiToken` / `REPLICATE_API_TOKEN` |
 
-override the config backend per-run with `--backend auto|groq|replicate|local`.
+groq/deepinfra/fireworks share `transcribeOpenAICompatible(endpoint:apiKey:model:)` — they differ only by base URL, key, and model name. fal & replicate upload audio inline as base64 `data:` URIs (no separate upload step).
+
+override the config backend per-run with `--backend auto|groq|deepinfra|fireworks|fal|replicate|local`.
 
 ## safety net features
 

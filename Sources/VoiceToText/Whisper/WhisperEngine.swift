@@ -5,6 +5,9 @@ enum WhisperVariant {
     case openaiWhisper
     case whisperKit
     case groq
+    case deepInfra
+    case fireworks
+    case fal
     case replicate
 }
 
@@ -15,6 +18,9 @@ final class WhisperEngine {
     private var providers: [WhisperVariant] = []
     private var whisperPath: String?
     private var groqApiKey: String?
+    private var deepInfraToken: String?
+    private var fireworksToken: String?
+    private var falToken: String?
     private var replicateToken: String?
 
     enum WhisperError: Error, LocalizedError {
@@ -44,33 +50,36 @@ final class WhisperEngine {
 
     private func detectBackend() {
         // Resolve cloud credentials (config takes precedence over env).
-        groqApiKey = config.groqApiKey ?? ProcessInfo.processInfo.environment["GROQ_API_KEY"]
-        replicateToken = config.replicateApiToken ?? ProcessInfo.processInfo.environment["REPLICATE_API_TOKEN"]
+        let env = ProcessInfo.processInfo.environment
+        groqApiKey = config.groqApiKey ?? env["GROQ_API_KEY"]
+        deepInfraToken = config.deepInfraApiKey ?? env["DEEPINFRA_API_KEY"] ?? env["DEEPINFRA_TOKEN"]
+        fireworksToken = config.fireworksApiKey ?? env["FIREWORKS_API_KEY"]
+        falToken = config.falApiKey ?? env["FAL_KEY"] ?? env["FAL_API_KEY"]
+        replicateToken = config.replicateApiToken ?? env["REPLICATE_API_TOKEN"]
 
         // Build an ordered fallback chain. Cloud providers (fast) come first,
         // local whisper is always appended last so transcription still works
         // when the network or the API is down.
         switch config.backend {
         case .auto:
+            // Preference order by cost/speed; each link is skipped if no key.
             if groqApiKey != nil { providers.append(.groq) }
+            if deepInfraToken != nil { providers.append(.deepInfra) }
+            if fireworksToken != nil { providers.append(.fireworks) }
             if replicateToken != nil { providers.append(.replicate) }
+            if falToken != nil { providers.append(.fal) }
             detectLocalWhisperBinary()
 
         case .groq:
-            if groqApiKey != nil {
-                providers.append(.groq)
-            } else {
-                fputs("Groq API key not found, using local whisper\n", stderr)
-            }
-            detectLocalWhisperBinary()
-
+            appendCloudOrWarn(.groq, present: groqApiKey != nil, envHint: "GROQ_API_KEY")
+        case .deepinfra:
+            appendCloudOrWarn(.deepInfra, present: deepInfraToken != nil, envHint: "DEEPINFRA_API_KEY")
+        case .fireworks:
+            appendCloudOrWarn(.fireworks, present: fireworksToken != nil, envHint: "FIREWORKS_API_KEY")
+        case .fal:
+            appendCloudOrWarn(.fal, present: falToken != nil, envHint: "FAL_KEY")
         case .replicate:
-            if replicateToken != nil {
-                providers.append(.replicate)
-            } else {
-                fputs("Replicate token not found (set REPLICATE_API_TOKEN), using local whisper\n", stderr)
-            }
-            detectLocalWhisperBinary()
+            appendCloudOrWarn(.replicate, present: replicateToken != nil, envHint: "REPLICATE_API_TOKEN")
 
         case .local, .openai:
             // OpenAI API isn't wired up yet; treat as local-only.
@@ -82,6 +91,27 @@ final class WhisperEngine {
         } else {
             fputs("Transcription chain: \(providers.map { "\($0)" }.joined(separator: " → "))\n", stderr)
         }
+    }
+
+    /// Cloud variants hit the network, so they get retried with backoff.
+    private func isCloudVariant(_ variant: WhisperVariant) -> Bool {
+        switch variant {
+        case .groq, .deepInfra, .fireworks, .fal, .replicate:
+            return true
+        case .openaiWhisper, .whisperCpp, .whisperKit:
+            return false
+        }
+    }
+
+    /// For an explicit cloud backend: use it if credentialed, otherwise warn,
+    /// then always append local whisper as the safety net.
+    private func appendCloudOrWarn(_ variant: WhisperVariant, present: Bool, envHint: String) {
+        if present {
+            providers.append(variant)
+        } else {
+            fputs("\(variant) selected but no credential found (set \(envHint)), using local whisper\n", stderr)
+        }
+        detectLocalWhisperBinary()
     }
 
     private func detectLocalWhisperBinary() {
@@ -150,7 +180,7 @@ final class WhisperEngine {
             // errors); local backends are deterministic, so we try them once
             // before moving on.
             for variant in self.providers {
-                let isCloud = (variant == .groq || variant == .replicate)
+                let isCloud = self.isCloudVariant(variant)
                 let attempts = isCloud ? maxRetries : 1
 
                 for attempt in 0..<attempts {
@@ -164,6 +194,12 @@ final class WhisperEngine {
                         switch variant {
                         case .groq:
                             text = try self.transcribeWithGroq(audioPath: audioURL.path)
+                        case .deepInfra:
+                            text = try self.transcribeWithDeepInfra(audioPath: audioURL.path)
+                        case .fireworks:
+                            text = try self.transcribeWithFireworks(audioPath: audioURL.path)
+                        case .fal:
+                            text = try self.transcribeWithFal(audioPath: audioURL.path)
                         case .replicate:
                             text = try self.transcribeWithReplicate(audioPath: audioURL.path)
                         default:
@@ -186,17 +222,47 @@ final class WhisperEngine {
         }
     }
 
-    // MARK: - Groq API
+    // MARK: - OpenAI-compatible APIs (Groq, DeepInfra)
 
     private func transcribeWithGroq(audioPath: String) throws -> String {
-        guard let apiKey = groqApiKey else {
-            throw WhisperError.apiKeyMissing
-        }
+        guard let apiKey = groqApiKey else { throw WhisperError.apiKeyMissing }
+        return try transcribeOpenAICompatible(
+            audioPath: audioPath,
+            endpoint: "https://api.groq.com/openai/v1/audio/transcriptions",
+            apiKey: apiKey,
+            model: "whisper-large-v3"
+        )
+    }
 
+    private func transcribeWithDeepInfra(audioPath: String) throws -> String {
+        guard let apiKey = deepInfraToken else { throw WhisperError.apiKeyMissing }
+        // ~40-80x cheaper than OpenAI/Deepgram. Using large-v3 (not turbo) for accuracy.
+        return try transcribeOpenAICompatible(
+            audioPath: audioPath,
+            endpoint: "https://api.deepinfra.com/v1/openai/audio/transcriptions",
+            apiKey: apiKey,
+            model: "openai/whisper-large-v3"
+        )
+    }
+
+    private func transcribeWithFireworks(audioPath: String) throws -> String {
+        guard let apiKey = fireworksToken else { throw WhisperError.apiKeyMissing }
+        // OpenAI-compatible ASR. whisper-v3 (large), not the turbo variant.
+        return try transcribeOpenAICompatible(
+            audioPath: audioPath,
+            endpoint: "https://audio-prod.us-virginia-1.direct.fireworks.ai/v1/audio/transcriptions",
+            apiKey: apiKey,
+            model: "whisper-v3"
+        )
+    }
+
+    /// Shared multipart transcription for OpenAI-compatible `/audio/transcriptions`
+    /// endpoints. Groq and DeepInfra differ only by base URL, key, and model name.
+    private func transcribeOpenAICompatible(audioPath: String, endpoint: String, apiKey: String, model: String) throws -> String {
         let audioData = try Data(contentsOf: URL(fileURLWithPath: audioPath))
         let boundary = UUID().uuidString
 
-        var request = URLRequest(url: URL(string: "https://api.groq.com/openai/v1/audio/transcriptions")!)
+        var request = URLRequest(url: URL(string: endpoint)!)
         request.httpMethod = "POST"
         request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
         request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
@@ -210,10 +276,10 @@ final class WhisperEngine {
         body.append(audioData)
         body.append("\r\n".data(using: .utf8)!)
 
-        // Add model (groq whisper-large-v3 for best accuracy)
+        // Add model
         body.append("--\(boundary)\r\n".data(using: .utf8)!)
         body.append("Content-Disposition: form-data; name=\"model\"\r\n\r\n".data(using: .utf8)!)
-        body.append("whisper-large-v3\r\n".data(using: .utf8)!)
+        body.append("\(model)\r\n".data(using: .utf8)!)
 
         // Add language if specified
         if let language = config.language {
@@ -397,6 +463,65 @@ final class WhisperEngine {
         }
     }
 
+    // MARK: - fal.ai Wizper
+
+    /// Wizper is fal's Whisper-v3-large. Synchronous `fal.run` endpoint: send the
+    /// audio inline as a base64 data URI, get `{ text, chunks }` back directly.
+    private func transcribeWithFal(audioPath: String) throws -> String {
+        guard let token = falToken else { throw WhisperError.apiKeyMissing }
+
+        let audioData = try Data(contentsOf: URL(fileURLWithPath: audioPath))
+        let mime = mimeType(forPath: audioPath)
+        let dataURI = "data:\(mime);base64,\(audioData.base64EncodedString())"
+
+        var input: [String: Any] = [
+            "audio_url": dataURI,
+            "task": "transcribe",
+            "version": "3"  // all Wizper versions are whisper-large
+        ]
+        if let language = config.language {
+            input["language"] = language
+        }
+        let body = try JSONSerialization.data(withJSONObject: input)
+
+        var request = URLRequest(url: URL(string: "https://fal.run/fal-ai/wizper")!)
+        request.httpMethod = "POST"
+        request.setValue("Key \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = body
+        request.timeoutInterval = 180
+
+        var result: String?
+        var requestError: Error?
+        let semaphore = DispatchSemaphore(value: 0)
+
+        let task = URLSession.shared.dataTask(with: request) { data, _, error in
+            defer { semaphore.signal() }
+            if let error = error { requestError = error; return }
+            guard let data = data else {
+                requestError = WhisperError.transcriptionFailed("No data from fal")
+                return
+            }
+            guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                let body = String(data: data, encoding: .utf8) ?? "Unknown response"
+                requestError = WhisperError.transcriptionFailed(body)
+                return
+            }
+            if let text = json["text"] as? String {
+                result = text
+            } else if let detail = json["detail"] as? String {
+                requestError = WhisperError.transcriptionFailed(detail)
+            } else {
+                requestError = WhisperError.transcriptionFailed("Unexpected fal response: \(json)")
+            }
+        }
+        task.resume()
+        semaphore.wait()
+
+        if let error = requestError { throw error }
+        return result?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    }
+
     // MARK: - Local Transcription
 
     private func transcribeLocally(variant: WhisperVariant, audioPath: String) throws -> String {
@@ -433,7 +558,7 @@ final class WhisperEngine {
                 "--model", config.model
             ] + (config.language.map { ["--language", $0] } ?? [])
 
-        case .groq, .replicate:
+        case .groq, .deepInfra, .fireworks, .fal, .replicate:
             fatalError("Cloud variant routed to transcribeLocally")
         }
 

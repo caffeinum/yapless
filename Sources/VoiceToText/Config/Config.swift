@@ -51,6 +51,9 @@ struct AnimationConfig: Codable {
 enum TranscriptionBackend: String, Codable {
     case auto       // Auto-detect best available
     case groq       // Groq API (fastest, cloud)
+    case deepinfra  // DeepInfra API (whisper-large-v3, OpenAI-compatible, cheapest)
+    case fireworks  // Fireworks AI API (whisper-v3, OpenAI-compatible)
+    case fal        // fal.ai Wizper (whisper-v3-large, serverless GPU)
     case replicate  // Replicate API (incredibly-fast-whisper, cloud)
     case openai     // OpenAI Whisper API (cloud)
     case local      // Local whisper (openai-whisper, whisper-cpp, whisperkit)
@@ -65,6 +68,9 @@ struct WhisperConfig: Codable {
     var vadThreshold: Double = 0.6
     var modelPath: String? = nil  // Custom model path, uses default if nil
     var groqApiKey: String? = nil  // Groq API key, or use GROQ_API_KEY env var
+    var deepInfraApiKey: String? = nil  // DeepInfra key, or use DEEPINFRA_API_KEY env var
+    var fireworksApiKey: String? = nil  // Fireworks key, or use FIREWORKS_API_KEY env var
+    var falApiKey: String? = nil  // fal.ai key, or use FAL_KEY env var
     var replicateApiToken: String? = nil  // Replicate token, or use REPLICATE_API_TOKEN env var
 
     init() {}
@@ -79,6 +85,9 @@ struct WhisperConfig: Codable {
         vadThreshold = try container.decodeIfPresent(Double.self, forKey: .vadThreshold) ?? 0.6
         modelPath = try container.decodeIfPresent(String.self, forKey: .modelPath)
         groqApiKey = try container.decodeIfPresent(String.self, forKey: .groqApiKey)
+        deepInfraApiKey = try container.decodeIfPresent(String.self, forKey: .deepInfraApiKey)
+        fireworksApiKey = try container.decodeIfPresent(String.self, forKey: .fireworksApiKey)
+        falApiKey = try container.decodeIfPresent(String.self, forKey: .falApiKey)
         replicateApiToken = try container.decodeIfPresent(String.self, forKey: .replicateApiToken)
     }
 }
