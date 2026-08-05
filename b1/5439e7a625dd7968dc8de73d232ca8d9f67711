@@ -1,0 +1,23 @@
+Sources/VoiceToText/Showcase/AnimationShowcase.swift
+  s_af6ac2936cd2ef::t_e06c44b155283e 80-81
+  s_af6ac2936cd2ef::t_6ff2925ac1af28 8,11
+  s_af6ac2936cd2ef::t_9f1282a1b52de3 31-38,40-44
+  s_af6ac2936cd2ef::t_490dc532b0d084 65
+  s_af6ac2936cd2ef::t_d848bec2741357 74-75
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "b15439e7a625dd7968dc8de73d232ca8d9f67711",
+  "prompts": {},
+  "sessions": {
+    "s_af6ac2936cd2ef": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f895d0ef-8bdc-4d75-a045-5a3c805b6dad",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Aleksey Bykhun <theisease@gmail.com>"
+    }
+  }
+}
