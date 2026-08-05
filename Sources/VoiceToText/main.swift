@@ -25,7 +25,7 @@ struct VoiceToText: ParsableCommand {
     @Option(name: .shortAndLong, help: "Whisper model to use (tiny, base, small, medium, large)")
     var model: String = "base"
 
-    @Option(name: .long, help: "Animation style (dot, orb, waveform, glow, siri, cursor)")
+    @Option(name: .long, help: "Animation style (dot, pill, orb, waveform, glow, siri, cursor)")
     var animationStyle: String?
 
     @Option(name: .long, help: "Path to config file")

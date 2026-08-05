@@ -70,6 +70,7 @@ override the config backend per-run with `--backend auto|groq|deepinfra|firework
 - `glow`, `siri`: also fullscreen
 - `orb`, `waveform`: small windowed
 - `cursor`: orb that follows cursor
+- `pill`: floating white capsule holding a mirrored 29-bar equalizer (bass in the middle, edges decay into dots). small windowed — `OverlayWindow.calculateFrame` gives it a wide capsule frame (`size * 2.4` × `size * 0.62`) instead of a square. bars read `AnimationModel.smoothedSpectrum` (14 FFT bands, linearly interpolated across bars), colored primary→secondary center→edge; state recolors the whole pill (blue processing sweep, green complete, red error). live color studies: `mockups/pill-equalizer.html` (open it, it mirrors the Swift geometry 1:1).
 
 animation `AnimationState` enum: `.recording` / `.processing` / `.complete` / `.error`. error display is held ~1.2s before close. dot mode keeps cursor hidden through completion/error — only deinit unhides.
 

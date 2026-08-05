@@ -43,10 +43,11 @@ final class VoiceToTextTests: XCTestCase {
     }
 
     func testAnimationStyles() throws {
-        XCTAssertEqual(AnimationStyle.allCases.count, 4)
+        XCTAssertEqual(AnimationStyle.allCases.count, 7)
         XCTAssertEqual(AnimationStyle.orb.rawValue, "orb")
         XCTAssertEqual(AnimationStyle.waveform.rawValue, "waveform")
         XCTAssertEqual(AnimationStyle.glow.rawValue, "glow")
         XCTAssertEqual(AnimationStyle.cursor.rawValue, "cursor")
+        XCTAssertEqual(AnimationStyle.pill.rawValue, "pill")
     }
 }

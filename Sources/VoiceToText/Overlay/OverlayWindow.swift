@@ -54,31 +54,37 @@ final class OverlayWindow: NSWindow {
         }
 
         let screenFrame = screen.visibleFrame
-        let size = CGFloat(config.size)
+        let base = CGFloat(config.size)
+
+        // Pill is a wide capsule; every other windowed style is square.
+        let size: CGSize = config.style == .pill
+            ? CGSize(width: max(240, base * 2.4), height: max(64, base * 0.62))
+            : CGSize(width: base, height: base)
 
         switch config.position {
         case .center:
-            let x = screenFrame.midX - size / 2
-            let y = screenFrame.midY - size / 2
-            return NSRect(x: x, y: y, width: size, height: size)
+            let x = screenFrame.midX - size.width / 2
+            let y = screenFrame.midY - size.height / 2
+            return NSRect(origin: CGPoint(x: x, y: y), size: size)
 
         case .topCenter:
-            let x = screenFrame.midX - size / 2
-            let y = screenFrame.maxY - size - 50
-            return NSRect(x: x, y: y, width: size, height: size)
+            let x = screenFrame.midX - size.width / 2
+            let y = screenFrame.maxY - size.height - 50
+            return NSRect(origin: CGPoint(x: x, y: y), size: size)
 
         case .bottomCenter:
-            let x = screenFrame.midX - size / 2
+            let x = screenFrame.midX - size.width / 2
             let y = screenFrame.minY + 50
-            return NSRect(x: x, y: y, width: size, height: size)
+            return NSRect(origin: CGPoint(x: x, y: y), size: size)
 
         case .cursor:
             let mouseLocation = NSEvent.mouseLocation
             return NSRect(
-                x: mouseLocation.x - size / 2,
-                y: mouseLocation.y - size / 2,
-                width: size,
-                height: size
+                origin: CGPoint(
+                    x: mouseLocation.x - size.width / 2,
+                    y: mouseLocation.y - size.height / 2
+                ),
+                size: size
             )
         }
     }
@@ -242,6 +248,8 @@ final class OverlayWindow: NSWindow {
             animationView = NewOrbAnimationView(config: animationConfig)  // Orb follows cursor
         case .dot:
             animationView = NewDotCursorAnimationView(config: animationConfig)
+        case .pill:
+            animationView = NewPillAnimationView(config: animationConfig)
         }
 
         animationView.frame = contentView?.bounds ?? .zero

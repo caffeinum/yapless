@@ -103,6 +103,8 @@ to disable, set `storage.saveHistory` to `false` in config.
 | `waveform` | real-time audio visualization |
 | `glow` | screen edge glow (dynamic island vibes) |
 | `siri` | multi-colored wave lines |
+| `dot` | cursor becomes a dot that pulses with voice (default) |
+| `pill` | floating capsule with a mirrored equalizer |
 
 ## how it works
 
