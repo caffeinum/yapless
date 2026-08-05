@@ -71,7 +71,8 @@ yapless --record --animation-style waveform
   "whisper": {
     "backend": "auto",
     "model": "base",
-    "language": null
+    "language": null,
+    "vocabulary": ["Raycast", "yapless", "Anthropic"]
   },
   "output": {
     "pasteToActiveApp": true,
@@ -85,6 +86,22 @@ yapless --record --animation-style waveform
   }
 }
 ```
+
+### teaching it words
+
+names and jargon that whisper keeps mangling go in `whisper.vocabulary`. they're sent as whisper's initial prompt, which biases spelling — it's a nudge, not a hard rule, and a long list dilutes it, so keep it to words you actually say. `whisper.prompt` sets a freeform sentence in front of them.
+
+honored by groq, deepinfra, fireworks, and local openai-whisper / whisper-cpp. replicate, fal and whisperkit take no prompt and ignore it.
+
+### running from a launcher
+
+Raycast kills a script command after ~60s, which cuts the recording off mid-transcription. `--detach` hands the run to its own session and returns immediately, so the launcher finishes while yapless keeps going:
+
+```bash
+yapless --record --paste --detach
+```
+
+output goes to `~/.local/share/yapless/detached.log`. the bundled `raycast/*.sh` already use it.
 
 ### picking a microphone
 

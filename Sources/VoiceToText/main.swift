@@ -49,6 +49,60 @@ struct VoiceToText: ParsableCommand {
     @Flag(name: .long, help: "Show animation showcase window")
     var showcase = false
 
+    @Flag(name: .long, help: "Re-launch in its own session and exit immediately (for launchers that time out, e.g. Raycast)")
+    var detach = false
+
+    /// Relaunch ourselves in a new session, then let the caller's process exit.
+    ///
+    /// Raycast kills a script command that outlives its timeout; a plain
+    /// background job is still in that process group, so it dies too.
+    /// POSIX_SPAWN_SETSID puts the recording process in its own session, where
+    /// the launcher can neither wait on it nor kill it.
+    private func relaunchDetached() throws {
+        guard let executable = Bundle.main.executablePath else {
+            throw ValidationError("could not resolve own executable path to detach")
+        }
+
+        let arguments = [executable] + CommandLine.arguments.dropFirst().filter { $0 != "--detach" }
+        var environment = ProcessInfo.processInfo.environment
+        environment["YAPLESS_DETACHED"] = "1"
+
+        var attr: posix_spawnattr_t?
+        posix_spawnattr_init(&attr)
+        defer { posix_spawnattr_destroy(&attr) }
+        posix_spawnattr_setflags(&attr, Int16(POSIX_SPAWN_SETSID))
+
+        // The launcher's pipes die with it; writing to a closed pipe would kill
+        // the detached run with SIGPIPE mid-transcription. Log to a file instead.
+        let logURL = StorageConfig.dataDirectory.appendingPathComponent("detached.log")
+        try? FileManager.default.createDirectory(
+            at: StorageConfig.dataDirectory, withIntermediateDirectories: true
+        )
+
+        var fileActions: posix_spawn_file_actions_t?
+        posix_spawn_file_actions_init(&fileActions)
+        defer { posix_spawn_file_actions_destroy(&fileActions) }
+        posix_spawn_file_actions_addopen(&fileActions, 0, "/dev/null", O_RDONLY, 0)
+        posix_spawn_file_actions_addopen(&fileActions, 1, logURL.path, O_WRONLY | O_CREAT | O_APPEND, 0o644)
+        posix_spawn_file_actions_adddup2(&fileActions, 1, 2)
+
+        var argv: [UnsafeMutablePointer<CChar>?] = arguments.map { strdup($0) }
+        argv.append(nil)
+        var envp: [UnsafeMutablePointer<CChar>?] = environment.map { strdup("\($0.key)=\($0.value)") }
+        envp.append(nil)
+        defer {
+            argv.forEach { free($0) }
+            envp.forEach { free($0) }
+        }
+
+        var pid: pid_t = 0
+        let status = posix_spawn(&pid, executable, &fileActions, &attr, argv, envp)
+        guard status == 0 else {
+            throw ValidationError("detach failed: posix_spawn returned \(status)")
+        }
+        print("yapless detached (pid \(pid)) — log: \(logURL.path)")
+    }
+
     /// Apply the `--backend` CLI flag over whatever the config file specified.
     private func applyBackendOverride(_ appConfig: inout Config) {
         guard let backend = backend else { return }
@@ -63,6 +117,11 @@ struct VoiceToText: ParsableCommand {
         // Line-buffer stdout/stderr so diagnostics survive abrupt exits and pipes.
         setvbuf(stdout, nil, _IOLBF, 0)
         setvbuf(stderr, nil, _IOLBF, 0)
+
+        if detach && ProcessInfo.processInfo.environment["YAPLESS_DETACHED"] == nil {
+            try relaunchDetached()
+            throw ExitCode.success
+        }
 
         if listInputs {
             let devices = AudioCapture.allInputDevices()

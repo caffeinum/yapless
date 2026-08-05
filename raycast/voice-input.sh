@@ -14,4 +14,4 @@
 # @raycast.author caffeinum
 # @raycast.authorURL https://github.com/caffeinum
 
-~/.local/bin/yapless --record --paste
+~/.local/bin/yapless --record --paste --detach

@@ -269,6 +269,15 @@ final class WhisperEngine {
 
     /// Shared multipart transcription for OpenAI-compatible `/audio/transcriptions`
     /// endpoints. Groq and DeepInfra differ only by base URL, key, and model name.
+    /// Whisper's initial prompt: a sentence of context the decoder conditions on.
+    /// Listing hard words there is how you teach it "cotal", not "coastal".
+    private var initialPrompt: String? {
+        let vocabulary = config.vocabulary.filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+        let parts = [config.prompt, vocabulary.isEmpty ? nil : vocabulary.joined(separator: ", ")]
+        let joined = parts.compactMap { $0 }.joined(separator: " ")
+        return joined.isEmpty ? nil : joined
+    }
+
     private func transcribeOpenAICompatible(audioPath: String, endpoint: String, apiKey: String, model: String) throws -> String {
         let audioData = try Data(contentsOf: URL(fileURLWithPath: audioPath))
         let boundary = UUID().uuidString
@@ -297,6 +306,12 @@ final class WhisperEngine {
             body.append("--\(boundary)\r\n".data(using: .utf8)!)
             body.append("Content-Disposition: form-data; name=\"language\"\r\n\r\n".data(using: .utf8)!)
             body.append("\(language)\r\n".data(using: .utf8)!)
+        }
+
+        if let prompt = initialPrompt {
+            body.append("--\(boundary)\r\n".data(using: .utf8)!)
+            body.append("Content-Disposition: form-data; name=\"prompt\"\r\n\r\n".data(using: .utf8)!)
+            body.append("\(prompt)\r\n".data(using: .utf8)!)
         }
 
         body.append("--\(boundary)--\r\n".data(using: .utf8)!)
@@ -568,7 +583,9 @@ final class WhisperEngine {
                 "--model", config.model,
                 "--output_format", "txt",
                 "--output_dir", outputDir
-            ] + (config.language.map { ["--language", $0] } ?? [])
+            ]
+            + (config.language.map { ["--language", $0] } ?? [])
+            + (initialPrompt.map { ["--initial_prompt", $0] } ?? [])
 
         case .whisperCpp:
             let modelPath = findWhisperCppModel()
@@ -577,7 +594,9 @@ final class WhisperEngine {
                 "-f", audioPath,
                 "--output-txt",
                 "--no-timestamps"
-            ] + (config.language.map { ["-l", $0] } ?? [])
+            ]
+            + (config.language.map { ["-l", $0] } ?? [])
+            + (initialPrompt.map { ["--prompt", $0] } ?? [])
 
         case .whisperKit:
             arguments = [

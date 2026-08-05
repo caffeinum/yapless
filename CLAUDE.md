@@ -58,6 +58,14 @@ groq/deepinfra/fireworks share `transcribeOpenAICompatible(endpoint:apiKey:model
 
 override the config backend per-run with `--backend auto|groq|deepinfra|fireworks|fal|replicate|local`.
 
+## vocabulary / initial prompt
+
+`whisper.vocabulary` (array) and `whisper.prompt` (string) become whisper's **initial prompt** — the sentence the decoder conditions on, which biases spelling toward those words. built in `WhisperEngine.initialPrompt`, sent as the `prompt` multipart field to groq/deepinfra/fireworks, `--initial_prompt` to openai-whisper, `--prompt` to whisper-cpp. **not** supported by replicate (incredibly-fast-whisper takes no prompt), fal, or whisperkit — those silently ignore it.
+
+## detached runs
+
+`--detach` re-spawns the binary via `posix_spawn` with `POSIX_SPAWN_SETSID` (own session) and exits immediately, so a launcher that times out — Raycast kills a script command at 60s — can't take the recording down with it. child stdio goes to `~/.local/share/yapless/detached.log`, not the launcher's pipes: writing to a closed pipe would SIGPIPE the run mid-transcription (observed). `raycast/*.sh` use it.
+
 ## safety net features
 
 - audio saved immediately to permanent location (survives crashes)

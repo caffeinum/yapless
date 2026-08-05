@@ -101,6 +101,11 @@ struct WhisperConfig: Codable {
     var vadEnabled: Bool = true  // Voice activity detection
     var vadThreshold: Double = 0.6
     var modelPath: String? = nil  // Custom model path, uses default if nil
+    /// Words whisper keeps getting wrong — names, jargon, product names.
+    /// Sent as the decoder's initial prompt, which biases spelling.
+    var vocabulary: [String] = []
+    /// Freeform initial prompt, prepended to `vocabulary`.
+    var prompt: String? = nil
     var groqApiKey: String? = nil  // Groq API key, or use GROQ_API_KEY env var
     var deepInfraApiKey: String? = nil  // DeepInfra key, or use DEEPINFRA_API_KEY env var
     var fireworksApiKey: String? = nil  // Fireworks key, or use FIREWORKS_API_KEY env var
@@ -118,6 +123,8 @@ struct WhisperConfig: Codable {
         vadEnabled = try container.decodeIfPresent(Bool.self, forKey: .vadEnabled) ?? true
         vadThreshold = try container.decodeIfPresent(Double.self, forKey: .vadThreshold) ?? 0.6
         modelPath = try container.decodeIfPresent(String.self, forKey: .modelPath)
+        vocabulary = try container.decodeIfPresent([String].self, forKey: .vocabulary) ?? []
+        prompt = try container.decodeIfPresent(String.self, forKey: .prompt)
         groqApiKey = try container.decodeIfPresent(String.self, forKey: .groqApiKey)
         deepInfraApiKey = try container.decodeIfPresent(String.self, forKey: .deepInfraApiKey)
         fireworksApiKey = try container.decodeIfPresent(String.self, forKey: .fireworksApiKey)
