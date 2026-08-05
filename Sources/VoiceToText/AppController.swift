@@ -42,6 +42,7 @@ final class AppController {
             }
         }
 
+        audioCapture.silenceFloor = Float(config.audio.silenceFloor)
         setupCallbacks()
     }
 
@@ -215,6 +216,49 @@ final class AppController {
         }
     }
 
+    /// Why this recording shouldn't be transcribed, or nil to proceed.
+    ///
+    /// Whisper invents confident sentences from silence ("Thank you for
+    /// watching!") — well-formed text no downstream filter can catch. The only
+    /// evidence that it isn't speech is the audio underneath it, which is why
+    /// this lives here. Record path only: `--transcribe` never reaches it, so
+    /// naming a recording explicitly always overrides the heuristic.
+    private func silenceRefusal() -> String? {
+        let required = config.audio.minVoicedSeconds
+        guard required > 0 else { return nil }
+
+        let voiced = audioCapture.voicedSeconds
+        guard voiced < required else { return nil }
+
+        return String(
+            format: "only %.2fs of voice-level audio (need %.2fs above rms %.3f)",
+            voiced, required, config.audio.silenceFloor
+        )
+    }
+
+    /// Refusals must be impossible to miss: an invisible one is indistinguishable
+    /// from a bug and survives for weeks. The audio is kept either way, so a
+    /// wrong threshold costs a `--transcribe`, not the user's words.
+    private func refuseSilentRecording(reason: String, audioURL: URL) {
+        print("Refused: \(reason)")
+        print("Audio kept — recover with: yapless --transcribe \(audioURL.path)")
+
+        NSSound(named: "Funk")?.play()
+        overlayWindow?.setMicLabel("no speech detected — not sent")
+        overlayWindow?.showErrorState()
+
+        if config.animation.style != .dot {
+            NSCursor.pop()
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) { [weak self] in
+            self?.hideOverlay()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                NSApplication.shared.terminate(nil)
+            }
+        }
+    }
+
     private func hideOverlay() {
         overlayWindow?.animateCompletion { [weak self] in
             self?.overlayWindow?.close()
@@ -224,6 +268,19 @@ final class AppController {
 
     private func processRecording(at audioURL: URL) {
         currentRecordingURL = audioURL
+
+        // Logged on every run, not just refusals: tuning the threshold later
+        // needs the distribution of accepted recordings too.
+        print(String(format: "Voiced audio: %.2fs (threshold %.2fs above rms %.3f)",
+                     audioCapture.voicedSeconds,
+                     config.audio.minVoicedSeconds,
+                     config.audio.silenceFloor))
+
+        if let reason = silenceRefusal() {
+            refuseSilentRecording(reason: reason, audioURL: audioURL)
+            return
+        }
+
         overlayWindow?.showProcessingState()
 
         whisperEngine.transcribe(audioURL: audioURL) { [weak self] result in

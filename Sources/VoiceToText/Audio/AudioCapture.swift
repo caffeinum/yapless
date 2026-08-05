@@ -18,6 +18,12 @@ final class AudioCapture {
     private let recordingFormat: AVAudioFormat
     /// If set, overrides the system default input for this capture.
     var preferredDevice: InputDeviceInfo?
+    /// Raw-RMS level above which a buffer counts as voice, for the silence
+    /// guard. NOT the same scale as `calculateRMS`, which returns a display
+    /// level (rms * 5) — the guard is calibrated against raw RMS.
+    var silenceFloor: Float = 0.01
+    /// Seconds of voice-level audio in the current recording.
+    private(set) var voicedSeconds: Double = 0
     /// Saved system default before we switched it; restored on stopRecording.
     private var savedSystemDefaultDeviceID: AudioDeviceID?
     /// Decaying reference level used to normalise the spectrum across frames.
@@ -121,6 +127,7 @@ final class AudioCapture {
             bufferCount = 0
             bufferMaxSample = 0
             bufferRMSSum = 0
+            voicedSeconds = 0
             lastStatsLog = Date()
 
             audioFile = try AVAudioFile(
@@ -199,6 +206,10 @@ final class AudioCapture {
             bufferMaxSample = max(bufferMaxSample, peak)
             bufferRMSSum += rms
             bufferCount += 1
+
+            if rms > silenceFloor, buffer.format.sampleRate > 0 {
+                voicedSeconds += Double(buffer.frameLength) / buffer.format.sampleRate
+            }
 
             let now = Date()
             if now.timeIntervalSince(lastStatsLog) >= 1.0 {

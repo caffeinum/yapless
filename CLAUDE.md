@@ -66,6 +66,20 @@ override the config backend per-run with `--backend auto|groq|deepinfra|firework
 
 `--detach` re-spawns the binary via `posix_spawn` with `POSIX_SPAWN_SETSID` (own session) and exits immediately, so a launcher that times out — Raycast kills a script command at 60s — can't take the recording down with it. child stdio goes to `~/.local/share/yapless/detached.log`, not the launcher's pipes: writing to a closed pipe would SIGPIPE the run mid-transcription (observed). `raycast/*.sh` use it.
 
+## silence guard
+
+`audio.minVoicedSeconds` (default 0.4) + `audio.silenceFloor` (default 0.01 raw RMS): a recording with less than that much voice-level audio is **refused before transcription** — nothing transcribed, nothing pasted, nothing sent to `output.command`. 0 disables it.
+
+Why here and not in a text filter: whisper invents well-formed sentences from silence ("Thank you for watching!"). Nothing downstream can tell that from speech — the only evidence is the flat audio underneath, which only yapless can see.
+
+Why duration and not level: measured over 527 recordings, **peak level does not separate** (hallucinations reach peak 0.168, real dictations go down to 0.039 — including a 59s genuine one at 0.057). Voiced *duration* does, because hallucinations come from brief noise bursts. 0.01/0.4s catches 13/30 hallucinations and refuses 1/157 real dictations; 0.02/0.2s catches 28/30 and refuses 4/157.
+
+Two constraints, both deliberate:
+- **Record path only.** `--transcribe` never reaches it, so naming a recording explicitly always overrides the heuristic — that's also the documented recovery, since the wav is saved before transcription.
+- **Refusals announce themselves** (sound + overlay error + log). An invisible refusal is indistinguishable from a bug and would survive for weeks.
+
+`audioCapture.voicedSeconds` is logged on every run, accepted or not, so the threshold can be re-tuned from real data. Note `calculateRMS` returns a *display* level (`rms * 5`); the guard uses raw RMS.
+
 ## output sink
 
 `output.command` (config) / `--output-command` (CLI) hands the final transcript to a shell command **on stdin** — never argv or env, because dictation contains quotes and newlines and argv is visible in `ps`. `YAPLESS_TRANSCRIPT_LENGTH` is set for cheap sanity checks. It is **additive**: clipboard and paste still happen, so the transcript can land in the editor *and* go somewhere else.

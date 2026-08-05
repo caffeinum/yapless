@@ -106,6 +106,21 @@ yapless --record --paste --detach
 
 output goes to `~/.local/share/yapless/detached.log`. the bundled `raycast/*.sh` already use it.
 
+### refusing silence
+
+whisper invents confident sentences out of silence — "Thank you for watching!" is a real thing it returns for an empty room. yapless refuses to transcribe a recording that has too little voice-level audio in it:
+
+```json
+"audio": {
+  "minVoicedSeconds": 0.4,
+  "silenceFloor": 0.01
+}
+```
+
+set `minVoicedSeconds` to 0 to turn it off. a refusal plays a sound and shows an error on the overlay — it's never a silent no-op — and the audio is kept, so `yapless --transcribe latest` still rescues it. `--transcribe` deliberately skips the check: naming a recording is you saying you meant it.
+
+these numbers were measured over 527 real recordings; loudness alone doesn't work (a quiet 59-second dictation peaks lower than a one-word hallucination), but *how long* the audio carries voice does.
+
 ### sending the transcript somewhere else
 
 `output.command` hands the finished transcript to any command on **stdin**, alongside the usual clipboard/paste:

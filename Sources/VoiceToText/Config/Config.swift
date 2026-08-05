@@ -74,6 +74,18 @@ struct AudioConfig: Codable {
     /// without naming them. Prefer `excludeInputs` — this one acts on devices
     /// you never mentioned.
     var avoidBluetoothInput: Bool = false
+    /// Raw-RMS level above which audio counts as voice. An absolute floor is a
+    /// claim about one mic at one gain — hence config, not a constant.
+    var silenceFloor: Double = 0.01
+    /// A recording with less than this many seconds of voice is refused before
+    /// transcription. 0 disables the guard.
+    ///
+    /// Measured over 527 of Aleks's recordings: 0.01/0.4s catches 13 of 30
+    /// silence-hallucinations and refuses 1 of 157 genuine dictations. Peak
+    /// level cannot do this job — hallucinations reach peak 0.168 while real
+    /// speech goes down to 0.039 — but voiced DURATION separates them, because
+    /// hallucinations come from brief noise bursts.
+    var minVoicedSeconds: Double = 0.4
 
     static let systemDefaultKeyword = "default"
 
@@ -85,6 +97,8 @@ struct AudioConfig: Codable {
         inputPriority = try container.decodeIfPresent([String].self, forKey: .inputPriority) ?? []
         excludeInputs = try container.decodeIfPresent([String].self, forKey: .excludeInputs) ?? []
         avoidBluetoothInput = try container.decodeIfPresent(Bool.self, forKey: .avoidBluetoothInput) ?? false
+        silenceFloor = try container.decodeIfPresent(Double.self, forKey: .silenceFloor) ?? 0.01
+        minVoicedSeconds = try container.decodeIfPresent(Double.self, forKey: .minVoicedSeconds) ?? 0.4
     }
 }
 
