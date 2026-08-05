@@ -173,9 +173,22 @@ final class AudioCapture {
         }
     }
 
+    /// Set YAPLESS_DEBUG_SPECTRUM=1 to print what the bars are actually being
+    /// fed — the only way to tell "the display is wrong" from "the mic is quiet"
+    /// without standing in front of the screen.
+    private static let debugSpectrum = ProcessInfo.processInfo.environment["YAPLESS_DEBUG_SPECTRUM"] == "1"
+    private var lastSpectrumLog: Date = .distantPast
+
     private func processAudioBuffer(_ buffer: AVAudioPCMBuffer) {
         let level = calculateRMS(buffer: buffer)
         let spectrum = calculateSpectrum(buffer: buffer)
+
+        if Self.debugSpectrum, Date().timeIntervalSince(lastSpectrumLog) > 0.25 {
+            lastSpectrumLog = Date()
+            let shown = spectrum[3..<min(13, spectrum.count)]
+            let bars = shown.map { String(format: "%.2f", $0) }.joined(separator: " ")
+            print(String(format: "spectrum rms=%.4f ref=%.4f | %@", level, spectrumPeak, bars))
+        }
 
         // Diagnostic: track raw signal stats and log every ~1s so we know if mic is silent.
         if let channelData = buffer.floatChannelData?[0] {
@@ -278,13 +291,24 @@ final class AudioCapture {
             let end = min(binCount, max(start + 1, Int(highHz / binWidth)))
 
             guard end > start else { continue }
+
+            // `&magnitudes[start]` looks like C pointer arithmetic but isn't:
+            // Swift hands an inout element a pointer to a TEMPORARY holding
+            // that one value, so vDSP read `end - start` floats of whatever
+            // followed it on the stack. That garbage is where the inf came
+            // from — one inf in a band poisons the reference level and every
+            // bar divides to zero. This is the actual "deeply wrong" bug.
             var sum: Float = 0
-            vDSP_sve(&magnitudes[start], 1, &sum, vDSP_Length(end - start))
+            magnitudes.withUnsafeBufferPointer { buffer in
+                vDSP_sve(buffer.baseAddress! + start, 1, &sum, vDSP_Length(end - start))
+            }
 
             // Voice rolls off with frequency; without a tilt the high bands are
             // permanently dwarfed by the fundamental.
+            // Linear tilt, measured rather than guessed: with sqrt, only the
+            // bottom 3 bars ever cleared the 30dB window on real speech.
             let centreHz = (lowHz + highHz) / 2
-            let tilt = sqrt(centreHz / lowestHz)
+            let tilt = centreHz / lowestHz
             bands[band] = (sum / Float(end - start)) * tilt
         }
 
