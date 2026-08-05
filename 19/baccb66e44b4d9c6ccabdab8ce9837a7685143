@@ -1,0 +1,38 @@
+raycast/voice-input.sh
+  s_af6ac2936cd2ef::t_e15b78b39d45c1 17
+Sources/VoiceToText/Whisper/WhisperEngine.swift
+  s_af6ac2936cd2ef::t_80b678f0d4551c 311-316
+  s_af6ac2936cd2ef::t_b9899acea48b88 586-588,597-599
+  s_af6ac2936cd2ef::t_a8208ffd702519 272-280
+Sources/VoiceToText/main.swift
+  s_af6ac2936cd2ef::t_e11ba17b85a5e0 121-125
+  s_af6ac2936cd2ef::t_ebc7b35b8d0209 99,103
+  s_af6ac2936cd2ef::t_ea065be6d47867 52-74,89-98,100-102,104-105
+  s_af6ac2936cd2ef::t_a3bb254626ae84 75-88
+raycast/voice-input-clipboard.sh
+  s_af6ac2936cd2ef::t_e15b78b39d45c1 17
+CLAUDE.md
+  s_af6ac2936cd2ef::t_7b247cb7b113aa 61-68
+Sources/VoiceToText/Config/Config.swift
+  s_af6ac2936cd2ef::t_e92c4aba177693 104-108
+  s_af6ac2936cd2ef::t_358b786849c119 126-127
+README.md
+  s_af6ac2936cd2ef::t_1eb639e17ef57c 74-75
+  s_af6ac2936cd2ef::t_e2107e0c230850 90-105
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "19baccb66e44b4d9c6ccabdab8ce9837a7685143",
+  "prompts": {},
+  "sessions": {
+    "s_af6ac2936cd2ef": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f895d0ef-8bdc-4d75-a045-5a3c805b6dad",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Aleksey Bykhun <theisease@gmail.com>"
+    }
+  }
+}
