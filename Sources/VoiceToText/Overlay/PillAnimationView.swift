@@ -166,12 +166,16 @@ struct PillFrame: View {
         .opacity(config.opacity)
     }
 
-    /// Bands mode uses one bar per FFT band so each bar is a real band, not an
+    /// Bands 0-2 are rumble (HVAC, desk thump, mic handling) and the top band is
+    /// hiss — all of it moves without you saying anything, so it's dropped.
+    private static let usableBands = 3..<13
+
+    /// One bar per usable band, so each bar is a real band rather than an
     /// interpolation of two; history mode can afford finer bars.
     private var barCount: Int {
         switch mode {
         case .history: return 29
-        case .bands: return 15
+        case .bands: return Self.usableBands.count
         }
     }
 
@@ -232,10 +236,11 @@ struct PillFrame: View {
         }
     }
 
-    /// One bar per band, so this is a straight lookup rather than a resample.
+    /// One bar per usable band, so this is a lookup rather than a resample.
     private func sampleSpectrum(at d: CGFloat) -> CGFloat {
         guard !spectrum.isEmpty else { return 0 }
-        let index = Int((d * CGFloat(spectrum.count - 1)).rounded())
+        let offset = Int((d * CGFloat(Self.usableBands.count - 1)).rounded())
+        let index = Self.usableBands.lowerBound + offset
         return spectrum[min(max(index, 0), spectrum.count - 1)]
     }
 

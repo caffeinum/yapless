@@ -301,12 +301,18 @@ final class AudioCapture {
         //
         // Silence needs no separate gate: with nothing but room tone, every
         // band sits at its own floor, so every bar reads zero.
+        // Floor and peak move SLOWLY (buffers arrive ~90×/s, so 0.002/0.9995 is
+        // seconds, not milliseconds). Fast trackers converge on the signal
+        // within a syllable, which collapses the range and makes every band
+        // swing between 0 and 1 — that reads as violent jitter, not detail.
         for i in 0..<frequencyBands {
             let magnitude = bands[i]
-            bandFloors[i] = min(magnitude, bandFloors[i] + (magnitude - bandFloors[i]) * 0.02)
-            bandPeaks[i] = max(magnitude, bandPeaks[i] * 0.99)
+            bandFloors[i] = min(magnitude, bandFloors[i] + (magnitude - bandFloors[i]) * 0.002)
+            bandPeaks[i] = max(magnitude, bandPeaks[i] * 0.9995)
 
-            let range = max(bandPeaks[i] - bandFloors[i], 1e-6)
+            // Never let the window close up: a band whose floor and peak have
+            // met would otherwise show infinite gain on room tone.
+            let range = max(bandPeaks[i] - bandFloors[i], spectrumPeak * 0.05, 1e-6)
             bands[i] = min(1.0, max(0, (magnitude - bandFloors[i]) / range))
         }
 

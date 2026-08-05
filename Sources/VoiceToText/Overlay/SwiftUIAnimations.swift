@@ -129,14 +129,16 @@ class AnimationModel: ObservableObject {
 
         spectrum = bands.map { CGFloat($0) }
 
-        // Smooth each band - rise instant, fall slow
+        // Time-constant smoothing, not per-update fractions: attack ~70ms so a
+        // syllable still lands, release ~260ms so bars glide down instead of
+        // snapping. An instant rise made every band look like it was strobing.
+        let attack = 1 - exp(-dt / 0.07)
+        let release = 1 - exp(-dt / 0.26)
+
         for i in 0..<min(bands.count, smoothedSpectrum.count) {
             let target = CGFloat(bands[i])
-            if target > smoothedSpectrum[i] {
-                smoothedSpectrum[i] = target
-            } else {
-                smoothedSpectrum[i] = smoothedSpectrum[i] + (target - smoothedSpectrum[i]) * min(1.0, CGFloat(dt) * 6)
-            }
+            let rate = CGFloat(target > smoothedSpectrum[i] ? attack : release)
+            smoothedSpectrum[i] += (target - smoothedSpectrum[i]) * min(1, max(0, rate))
         }
     }
 }
