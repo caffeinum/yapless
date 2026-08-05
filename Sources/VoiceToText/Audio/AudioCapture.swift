@@ -408,16 +408,19 @@ final class AudioCapture {
     /// Resolve which mic to open from config, without ever opening one.
     ///
     /// Precedence: explicit `--input` (handled by the caller) → `inputPriority`
-    /// allow-list → `inputDevice` → system default. When nothing is configured
-    /// and the default is bluetooth, `avoidBluetoothInput` steers to a wired or
-    /// built-in mic instead of claiming the headset.
+    /// allow-list → `inputDevice` → system default. Nothing is inferred: if the
+    /// system default turns out to be excluded, yapless says so rather than
+    /// quietly substituting a device the user never named.
     static func resolveInputDevice(config: AudioConfig) -> InputSelection {
         let devices = allInputDevices()
 
         if !config.inputPriority.isEmpty {
             for query in config.inputPriority {
+                // "default" isn't naming a device, so exclusions still apply to
+                // whatever it resolves to; a named entry means you want it.
                 if query.lowercased() == AudioConfig.systemDefaultKeyword,
                    let fallback = defaultInputDeviceInfo() {
+                    if exclusionRule(for: fallback, config: config) != nil { continue }
                     return .chosen(fallback, reason: "inputPriority → system default")
                 }
                 if let match = match(query, in: devices) {
@@ -436,6 +439,11 @@ final class AudioCapture {
                 guard let info = defaultInputDeviceInfo() else {
                     return .unavailable(reason: "no system default input device")
                 }
+                if let rule = exclusionRule(for: info, config: config) {
+                    return .unavailable(
+                        reason: "inputDevice 'default' resolves to \(info.name), excluded by \(rule)"
+                    )
+                }
                 return .chosen(info, reason: "config inputDevice 'default'")
             }
             guard let match = match(requested, in: devices) else {
@@ -448,23 +456,28 @@ final class AudioCapture {
             return .unavailable(reason: "no system default input device")
         }
 
-        if config.avoidBluetoothInput && systemDefault.isBluetooth {
-            let preferredTransports: [UInt32] = [
-                kAudioDeviceTransportTypeUSB,
-                kAudioDeviceTransportTypeBuiltIn
-            ]
-            for transport in preferredTransports {
-                if let alternative = devices.first(where: { $0.transportType == transport }) {
-                    return .chosen(
-                        alternative,
-                        reason: "avoidBluetoothInput — skipped \(systemDefault.name)"
-                    )
-                }
-            }
-            print("WARNING: default input \(systemDefault.name) is bluetooth and no wired/built-in mic was found")
+        if let rule = exclusionRule(for: systemDefault, config: config) {
+            return .unavailable(
+                reason: "system default is \(systemDefault.name), excluded by \(rule) — "
+                    + "name the mic you want in audio.inputPriority"
+            )
         }
 
         return .chosen(systemDefault, reason: "system default")
+    }
+
+    /// Why a device is off-limits, or nil if it isn't.
+    private static func exclusionRule(for device: InputDeviceInfo, config: AudioConfig) -> String? {
+        for excluded in config.excludeInputs {
+            let lower = excluded.lowercased()
+            if device.name.lowercased().contains(lower) || device.uid.lowercased().contains(lower) {
+                return "excludeInputs '\(excluded)'"
+            }
+        }
+        if config.avoidBluetoothInput && device.isBluetooth {
+            return "avoidBluetoothInput"
+        }
+        return nil
     }
 
     private static func match(_ query: String, in devices: [InputDeviceInfo]) -> InputDeviceInfo? {

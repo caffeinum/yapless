@@ -52,18 +52,22 @@ struct AnimationConfig: Codable {
 
 /// Which microphone yapless is allowed to open.
 ///
-/// `inputPriority` is an allow-list, not a hint: if it is non-empty, only
-/// devices on it are ever opened. A device missing from the list — AirPods,
-/// say — is never touched, even if macOS has made it the system default.
+/// Everything here is explicit: name the devices you want, or the ones you
+/// don't. With nothing configured yapless takes the system default, exactly
+/// as macOS reports it — no category rules, no guessing on your behalf.
 struct AudioConfig: Codable {
     /// A device name/UID substring, or the literal "default" for whatever
     /// macOS currently considers the default input.
     var inputDevice: String? = nil
-    /// Ordered allow-list; first entry that is actually present wins.
+    /// Ordered allow-list; first entry that is actually present wins. When
+    /// non-empty, nothing off the list is ever opened.
     var inputPriority: [String] = []
-    /// With no device or list configured, refuse to open a bluetooth default
-    /// and pick a wired/built-in mic instead.
-    var avoidBluetoothInput: Bool = true
+    /// Name/UID substrings that must never be opened, e.g. ["AirPods"].
+    var excludeInputs: [String] = []
+    /// Escape hatch, off by default: treat every bluetooth input as excluded
+    /// without naming them. Prefer `excludeInputs` — this one acts on devices
+    /// you never mentioned.
+    var avoidBluetoothInput: Bool = false
 
     static let systemDefaultKeyword = "default"
 
@@ -73,7 +77,8 @@ struct AudioConfig: Codable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         inputDevice = try container.decodeIfPresent(String.self, forKey: .inputDevice)
         inputPriority = try container.decodeIfPresent([String].self, forKey: .inputPriority) ?? []
-        avoidBluetoothInput = try container.decodeIfPresent(Bool.self, forKey: .avoidBluetoothInput) ?? true
+        excludeInputs = try container.decodeIfPresent([String].self, forKey: .excludeInputs) ?? []
+        avoidBluetoothInput = try container.decodeIfPresent(Bool.self, forKey: .avoidBluetoothInput) ?? false
     }
 }
 

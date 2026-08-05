@@ -78,8 +78,7 @@ yapless --record --animation-style waveform
     "copyToClipboard": true
   },
   "audio": {
-    "inputPriority": ["usb microphone", "MacBook Pro Microphone"],
-    "avoidBluetoothInput": true
+    "inputPriority": ["usb microphone", "MacBook Pro Microphone"]
   },
   "storage": {
     "saveHistory": true
@@ -95,8 +94,10 @@ other forms:
 
 - `"inputDevice": "usb microphone"` — a single device (name or UID, substring ok)
 - `"inputDevice": "default"` — whatever macOS currently calls the default input
-- `"avoidBluetoothInput": true` (the default) — with nothing else configured, refuse a bluetooth default and use USB or built-in instead
+- `"excludeInputs": ["AirPods"]` — devices that must never be opened. if the system default turns out to be one of them, yapless stops and tells you, instead of picking a replacement you didn't ask for
 - `--input <name>` on the command line beats all of it, bluetooth included
+
+with nothing configured, yapless uses the system default exactly as macOS reports it — it does not second-guess your device choices.
 
 opening a bluetooth mic forces the headset into call mode: playback quality drops and the headset is yanked away from whatever else was using it. `yapless --list-inputs` marks those devices with ⚠︎.
 

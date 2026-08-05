@@ -86,7 +86,11 @@ animation `AnimationState` enum: `.recording` / `.processing` / `.complete` / `.
 1. `--input <query>` — explicit, wins even if bluetooth (logs a warning)
 2. `config.audio.inputPriority` — an ordered **allow-list**, first present entry wins. if it's non-empty, nothing off the list is ever opened; when none are connected yapless aborts with the device list rather than falling back (so AirPods left off the list are never touched, even as system default)
 3. `config.audio.inputDevice` — single device, or the literal `"default"` for the system default
-4. nothing configured → system default, but if `avoidBluetoothInput` (default `true`) and that default is bluetooth, it steers to the first USB then built-in mic
+4. nothing configured → the system default, exactly as macOS reports it
+
+nothing is inferred. `config.audio.excludeInputs` (name/UID substrings) marks devices that must never be opened; if the system default is excluded, yapless **aborts and says which rule stopped it** rather than substituting a device the user never named. exclusions apply to the system-default paths only — naming a device in `inputPriority`/`inputDevice`/`--input` means you want it.
+
+`avoidBluetoothInput` (default **false**) is a hidden escape hatch that excludes every bluetooth input without naming any. deliberately not the default: it acts on devices the user never mentioned, which is the kind of magic this config exists to replace.
 
 matching is case-insensitive, exact name first, then substring on name or UID. `InputDeviceInfo.transportType` comes from `kAudioDevicePropertyTransportType`; `isBluetooth`/`isVirtual`/`transportLabel` derive from it and `--list-inputs` prints the transport plus a ⚠︎ on bluetooth rows.
 

@@ -47,14 +47,16 @@ final class AppController {
 
     /// A misconfigured mic must be loud — silently recording from the wrong
     /// device produces a transcript of the wrong room.
-    private static func abortNoDevice(_ reason: String) -> Void {
+    ///
+    /// Exits immediately rather than scheduling a terminate: an async teardown
+    /// still lets startRecording run first, which would open the very device
+    /// the config just ruled out.
+    private static func abortNoDevice(_ reason: String) -> Never {
         print("ERROR: \(reason). Available inputs:")
         for d in AudioCapture.allInputDevices() {
             print("  - \(d.name) [\(d.transportLabel)]")
         }
-        DispatchQueue.main.async {
-            NSApplication.shared.terminate(nil)
-        }
+        exit(EXIT_FAILURE)
     }
 
     private func setupCallbacks() {
