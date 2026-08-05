@@ -3,6 +3,33 @@ import AppKit
 
 // MARK: - Pill Animation (floating capsule with a mirrored equalizer)
 
+/// Shared geometry so the window and the view agree on where the capsule sits.
+/// The window is deliberately larger than the capsule — the drop shadow needs
+/// room inside the window or it gets clipped into hard rectangular corners.
+enum PillMetrics {
+    /// Shadow room on each side, as a fraction of capsule height.
+    static let marginRatio: CGFloat = 0.62
+
+    static func capsuleSize(base: CGFloat) -> CGSize {
+        let height = min(40, max(24, base * 0.24))
+        return CGSize(width: height * 3.9, height: height)
+    }
+
+    static func windowSize(base: CGFloat) -> CGSize {
+        let capsule = capsuleSize(base: base)
+        let margin = capsule.height * marginRatio
+        return CGSize(
+            width: capsule.width + margin * 2,
+            height: capsule.height + margin * 2
+        )
+    }
+
+    /// Inverse of `windowSize` — recovers the capsule height from the window.
+    static func capsuleHeight(inWindowHeight height: CGFloat) -> CGFloat {
+        height / (1 + marginRatio * 2)
+    }
+}
+
 final class NewPillAnimationView: NSView, AnimationView {
     let config: AnimationConfig
     private let hostingView: NSHostingView<PillAnimationContent>
@@ -105,14 +132,21 @@ struct PillFrame: View {
     }
 
     var body: some View {
-        ZStack {
-            PillShell(state: state)
+        GeometryReader { geo in
+            // Capsule is inset by the shadow margin; bar insets scale with the
+            // capsule so proportions hold at any size.
+            let capsuleHeight = PillMetrics.capsuleHeight(inWindowHeight: geo.size.height)
 
-            Canvas { context, size in
-                drawBars(context: context, size: size)
+            ZStack {
+                PillShell(state: state, height: capsuleHeight)
+
+                Canvas { context, size in
+                    drawBars(context: context, size: size)
+                }
+                .padding(.horizontal, capsuleHeight * 0.3)
+                .padding(.vertical, capsuleHeight * 0.22)
             }
-            .padding(.horizontal, 22)
-            .padding(.vertical, 16)
+            .padding(capsuleHeight * PillMetrics.marginRatio)
         }
         .opacity(config.opacity)
     }
@@ -183,6 +217,8 @@ struct PillFrame: View {
 /// The frosted capsule the equalizer lives in.
 struct PillShell: View {
     let state: AnimationState
+    /// Shadow scales with the capsule — a fixed radius swamps a small pill.
+    let height: CGFloat
 
     private var borderTint: Color {
         switch state {
@@ -213,8 +249,8 @@ struct PillShell: View {
             .overlay(
                 Capsule().strokeBorder(borderTint, lineWidth: 1)
             )
-            .shadow(color: .black.opacity(0.28), radius: 18, x: 0, y: 6)
-            .shadow(color: .black.opacity(0.12), radius: 2, x: 0, y: 1)
+            .shadow(color: .black.opacity(0.28), radius: height * 0.42, x: 0, y: height * 0.14)
+            .shadow(color: .black.opacity(0.12), radius: height * 0.05, x: 0, y: 1)
     }
 }
 

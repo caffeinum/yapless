@@ -56,9 +56,11 @@ final class OverlayWindow: NSWindow {
         let screenFrame = screen.visibleFrame
         let base = CGFloat(config.size)
 
-        // Pill is a wide capsule; every other windowed style is square.
+        // Pill is a small wide capsule — roughly 2x cursor height, never a
+        // screen-hogging banner. Its window carries an extra shadow margin.
+        // Every other windowed style is square.
         let size: CGSize = config.style == .pill
-            ? CGSize(width: max(240, base * 2.4), height: max(64, base * 0.62))
+            ? PillMetrics.windowSize(base: base)
             : CGSize(width: base, height: base)
 
         switch config.position {
@@ -318,6 +320,11 @@ final class OverlayWindow: NSWindow {
     }
 
     func showRecordingState() {
+        // Launched from a background process the app is not frontmost, so the
+        // overlay never becomes key: keystrokes go elsewhere and SwiftUI
+        // throttles the animation until something focuses it. AppController
+        // captured the previous app already and re-activates it before pasting.
+        NSApp.activate()
         makeKeyAndOrderFront(nil)
         makeFirstResponder(self)
         animationView?.startRecordingAnimation()

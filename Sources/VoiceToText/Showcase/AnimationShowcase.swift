@@ -328,7 +328,10 @@ struct PillShowcaseView: View {
                 state: .recording,
                 config: config
             )
-            .frame(width: 170, height: 52)
+            .frame(
+                width: PillMetrics.windowSize(base: 120).width,
+                height: PillMetrics.windowSize(base: 120).height
+            )
         }
     }
 
