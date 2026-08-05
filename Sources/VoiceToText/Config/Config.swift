@@ -28,6 +28,9 @@ struct AnimationConfig: Codable {
     var style: AnimationStyle = .dot
     var primaryColor: String = "#007AFF"  // Apple Blue
     var secondaryColor: String = "#5856D6" // Purple accent
+    /// Capsule fill for the pill/equalizer styles. Dark values give the
+    /// terminal look; the border tint follows primaryColor either way.
+    var shellColor: String = "#FFFFFF"
     var opacity: Double = 0.9
     var size: Double = 120  // Base size in points
     var position: Position = .center
@@ -46,6 +49,7 @@ struct AnimationConfig: Codable {
         style = try container.decodeIfPresent(AnimationStyle.self, forKey: .style) ?? .dot
         primaryColor = try container.decodeIfPresent(String.self, forKey: .primaryColor) ?? "#007AFF"
         secondaryColor = try container.decodeIfPresent(String.self, forKey: .secondaryColor) ?? "#5856D6"
+        shellColor = try container.decodeIfPresent(String.self, forKey: .shellColor) ?? "#FFFFFF"
         opacity = try container.decodeIfPresent(Double.self, forKey: .opacity) ?? 0.9
         size = try container.decodeIfPresent(Double.self, forKey: .size) ?? 120
         position = try container.decodeIfPresent(Position.self, forKey: .position) ?? .center

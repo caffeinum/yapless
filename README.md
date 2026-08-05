@@ -65,8 +65,11 @@ yapless --record --animation-style waveform
 ```json
 {
   "animation": {
-    "style": "orb",
-    "position": "center"
+    "style": "equalizer",
+    "position": "bottomCenter",
+    "shellColor": "#141819",
+    "primaryColor": "#35E08A",
+    "secondaryColor": "#0E7C5A"
   },
   "whisper": {
     "backend": "auto",

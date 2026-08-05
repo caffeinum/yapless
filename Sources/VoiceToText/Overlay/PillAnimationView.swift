@@ -126,6 +126,9 @@ struct PillFrame: View {
     private var secondary: Color {
         Color(nsColor: NSColor(hex: config.secondaryColor) ?? .systemPurple)
     }
+    private var shellColor: Color {
+        Color(nsColor: NSColor(hex: config.shellColor) ?? .white)
+    }
 
     /// Center bar color per state; edges fade toward `edgeColor`.
     private var coreColor: Color {
@@ -153,7 +156,7 @@ struct PillFrame: View {
             let capsuleHeight = PillMetrics.capsuleHeight(inWindowHeight: geo.size.height)
 
             ZStack {
-                PillShell(state: state, height: capsuleHeight)
+                PillShell(state: state, height: capsuleHeight, fill: shellColor, tint: primary)
 
                 Canvas { context, size in
                     drawBars(context: context, size: size)
@@ -170,12 +173,13 @@ struct PillFrame: View {
     /// hiss — all of it moves without you saying anything, so it's dropped.
     private static let usableBands = 3..<13
 
-    /// One bar per usable band, so each bar is a real band rather than an
-    /// interpolation of two; history mode can afford finer bars.
+    /// Bars stay thin in both modes — one bar per band would make each one four
+    /// times the width of the history row's, which reads as chunky. Bands are
+    /// interpolated across a finer row instead.
     private var barCount: Int {
         switch mode {
         case .history: return 29
-        case .bands: return Self.usableBands.count
+        case .bands: return 25
         }
     }
 
@@ -183,7 +187,7 @@ struct PillFrame: View {
         guard size.width > 0, size.height > 0 else { return }
 
         let barCount = self.barCount
-        let gapRatio: CGFloat = mode == .bands ? 0.55 : 0.85
+        let gapRatio: CGFloat = 0.85
         let barWidth = size.width / (CGFloat(barCount) * (1 + gapRatio) - gapRatio)
         let step = barWidth * (1 + gapRatio)
         let centerY = size.height / 2
@@ -236,12 +240,18 @@ struct PillFrame: View {
         }
     }
 
-    /// One bar per usable band, so this is a lookup rather than a resample.
+    /// Interpolates between neighbouring usable bands so a thin bar row still
+    /// reads as one continuous curve.
     private func sampleSpectrum(at d: CGFloat) -> CGFloat {
         guard !spectrum.isEmpty else { return 0 }
-        let offset = Int((d * CGFloat(Self.usableBands.count - 1)).rounded())
-        let index = Self.usableBands.lowerBound + offset
-        return spectrum[min(max(index, 0), spectrum.count - 1)]
+
+        let position = d * CGFloat(Self.usableBands.count - 1)
+        let lower = Self.usableBands.lowerBound + Int(position)
+        let upper = min(lower + 1, Self.usableBands.upperBound - 1)
+        guard lower >= 0, upper < spectrum.count else { return 0 }
+
+        let frac = position - CGFloat(Int(position))
+        return spectrum[lower] + (spectrum[upper] - spectrum[lower]) * frac
     }
 
     /// The history is shorter than the bar row until you've been talking for a
@@ -265,10 +275,18 @@ struct PillShell: View {
     let state: AnimationState
     /// Shadow scales with the capsule — a fixed radius swamps a small pill.
     let height: CGFloat
+    let fill: Color
+    /// Recording-state border colour, so a dark shell can glow in its own hue.
+    let tint: Color
+
+    /// A dark capsule needs a lit rim, a light one needs a shaded rim.
+    private var isDarkShell: Bool {
+        (NSColor(fill).usingColorSpace(.sRGB)?.brightnessComponent ?? 1) < 0.5
+    }
 
     private var borderTint: Color {
         switch state {
-        case .recording: return Color.black.opacity(0.16)
+        case .recording: return isDarkShell ? tint.opacity(0.55) : Color.black.opacity(0.16)
         case .processing: return Color(red: 0.15, green: 0.55, blue: 1.0).opacity(0.45)
         case .complete: return Color(red: 0.16, green: 0.78, blue: 0.36).opacity(0.5)
         case .error: return Color(red: 0.95, green: 0.25, blue: 0.25).opacity(0.55)
@@ -279,17 +297,19 @@ struct PillShell: View {
         Capsule()
             .fill(
                 LinearGradient(
-                    colors: [
-                        Color(white: 1.0),
-                        Color(white: 0.94)
-                    ],
+                    colors: isDarkShell
+                        ? [fill.opacity(0.98), fill.mixed(with: .black, amount: 0.35)]
+                        : [fill, fill.mixed(with: .black, amount: 0.06)],
                     startPoint: .top,
                     endPoint: .bottom
                 )
             )
             .overlay(
                 Capsule()
-                    .strokeBorder(Color.white.opacity(0.9), lineWidth: 2)
+                    .strokeBorder(
+                        isDarkShell ? Color.white.opacity(0.12) : Color.white.opacity(0.9),
+                        lineWidth: isDarkShell ? 1 : 2
+                    )
                     .blendMode(.plusLighter)
             )
             .overlay(
@@ -303,6 +323,11 @@ struct PillShell: View {
 // MARK: - Color blending
 
 extension Color {
+    /// Shorthand for shading a shell colour toward black or white.
+    func mixed(with other: Color, amount: CGFloat) -> Color {
+        interpolated(to: other, amount: amount)
+    }
+
     /// Blend in sRGB — enough for bar-to-bar gradients, no need for a full color space dance.
     func interpolated(to other: Color, amount: CGFloat) -> Color {
         let a = NSColor(self).usingColorSpace(.sRGB)

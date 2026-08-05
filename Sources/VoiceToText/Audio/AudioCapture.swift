@@ -24,6 +24,7 @@ final class AudioCapture {
     private var spectrumPeak: Float = 0
     private lazy var bandPeaks = [Float](repeating: 0, count: frequencyBands)
     private lazy var bandFloors = [Float](repeating: 0, count: frequencyBands)
+    private var lastSpectrumTime = Date()
     private var bufferCount: Int = 0
     private var bufferMaxSample: Float = 0
     private var bufferRMSSum: Float = 0
@@ -301,14 +302,21 @@ final class AudioCapture {
         //
         // Silence needs no separate gate: with nothing but room tone, every
         // band sits at its own floor, so every bar reads zero.
-        // Floor and peak move SLOWLY (buffers arrive ~90×/s, so 0.002/0.9995 is
-        // seconds, not milliseconds). Fast trackers converge on the signal
-        // within a syllable, which collapses the range and makes every band
-        // swing between 0 and 1 — that reads as violent jitter, not detail.
+        // Trackers run on wall-clock time constants, not per-buffer fractions —
+        // buffer rate varies with the device, and tuning by fraction gave a
+        // tracker that either chased the signal (jitter) or froze after one
+        // loud moment (dead bars).
+        let now = Date()
+        let dt = Float(min(max(now.timeIntervalSince(lastSpectrumTime), 0.001), 0.25))
+        lastSpectrumTime = now
+
+        let floorRise = 1 - exp(-dt / 2.5)   // noise floor settles over seconds
+        let peakDecay = exp(-dt / 1.2)       // headroom forgets a shout in ~1s
+
         for i in 0..<frequencyBands {
             let magnitude = bands[i]
-            bandFloors[i] = min(magnitude, bandFloors[i] + (magnitude - bandFloors[i]) * 0.002)
-            bandPeaks[i] = max(magnitude, bandPeaks[i] * 0.9995)
+            bandFloors[i] = min(magnitude, bandFloors[i] + (magnitude - bandFloors[i]) * floorRise)
+            bandPeaks[i] = max(magnitude, bandPeaks[i] * peakDecay)
 
             // Never let the window close up: a band whose floor and peak have
             // met would otherwise show infinite gain on room tone.
