@@ -1,0 +1,34 @@
+Sources/VoiceToText/Audio/AudioCapture.swift
+  s_af6ac2936cd2ef::t_d335ee1dcba0d4 401-479
+  s_af6ac2936cd2ef::t_03e904b4bf0bb0 497-506,508-511
+  s_af6ac2936cd2ef::t_b81dff0409fbba 293-322
+Sources/VoiceToText/main.swift
+  s_af6ac2936cd2ef::t_8b11370ed728e6 76-77
+README.md
+  s_af6ac2936cd2ef::t_73109a898ab86a 80-83,90-101
+  s_af6ac2936cd2ef::t_fceea464d737f3 102
+Sources/VoiceToText/Config/Config.swift
+  s_af6ac2936cd2ef::t_ba378328a645fd 170,176
+  s_af6ac2936cd2ef::t_0128f12183e29d 53-79
+CLAUDE.md
+  s_af6ac2936cd2ef::t_e8070c1f8b4303 82-93
+Sources/VoiceToText/AppController.swift
+  s_af6ac2936cd2ef::t_126bddb75311eb 23-24,28-30,33-41,48-57
+  s_af6ac2936cd2ef::t_562f2b94e30cb0 58-59
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "f23c0dd64f3a54afa6fee337b911d9e746e0f175",
+  "prompts": {},
+  "sessions": {
+    "s_af6ac2936cd2ef": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f895d0ef-8bdc-4d75-a045-5a3c805b6dad",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Aleksey Bykhun <theisease@gmail.com>"
+    }
+  }
+}
