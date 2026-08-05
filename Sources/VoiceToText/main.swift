@@ -73,7 +73,8 @@ struct VoiceToText: ParsableCommand {
                 print("Available input devices:")
                 for d in devices {
                     let marker = d.id == defaultID ? " (default)" : ""
-                    print("  \(d.name) [id=\(d.id), \(Int(d.sampleRate))Hz, \(d.channels)ch]\(marker)")
+                    let warning = d.isBluetooth ? "  ⚠︎ bluetooth — opening this switches the headset to call mode" : ""
+                    print("  \(d.name) [\(d.transportLabel), id=\(d.id), \(Int(d.sampleRate))Hz, \(d.channels)ch]\(marker)\(warning)")
                 }
             }
             throw ExitCode.success

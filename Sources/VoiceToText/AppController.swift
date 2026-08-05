@@ -20,22 +20,41 @@ final class AppController {
         self.whisperEngine = WhisperEngine(config: config.whisper)
         self.outputHandler = OutputHandler(config: config.output)
 
+        // --input wins outright: an explicit request is honoured even if it is
+        // bluetooth. Otherwise the audio config decides.
         if let query = inputDeviceQuery {
             if let match = AudioCapture.findInputDevice(matching: query) {
                 print("Selected input device by --input '\(query)': \(match.name) (id=\(match.id))")
+                if match.isBluetooth {
+                    print("WARNING: \(match.name) is bluetooth — opening it will switch the headset to call mode")
+                }
                 self.audioCapture.preferredDevice = match
             } else {
-                print("ERROR: no input device matched '\(query)'. Available inputs:")
-                for d in AudioCapture.allInputDevices() {
-                    print("  - \(d.name)")
-                }
-                DispatchQueue.main.async {
-                    NSApplication.shared.terminate(nil)
-                }
+                Self.abortNoDevice("no input device matched '\(query)'")
+            }
+        } else {
+            switch AudioCapture.resolveInputDevice(config: config.audio) {
+            case .chosen(let device, let reason):
+                print("Input device (\(reason)): \(device.name) [\(device.transportLabel), id=\(device.id)]")
+                self.audioCapture.preferredDevice = device
+            case .unavailable(let reason):
+                Self.abortNoDevice(reason)
             }
         }
 
         setupCallbacks()
+    }
+
+    /// A misconfigured mic must be loud — silently recording from the wrong
+    /// device produces a transcript of the wrong room.
+    private static func abortNoDevice(_ reason: String) -> Void {
+        print("ERROR: \(reason). Available inputs:")
+        for d in AudioCapture.allInputDevices() {
+            print("  - \(d.name) [\(d.transportLabel)]")
+        }
+        DispatchQueue.main.async {
+            NSApplication.shared.terminate(nil)
+        }
     }
 
     private func setupCallbacks() {

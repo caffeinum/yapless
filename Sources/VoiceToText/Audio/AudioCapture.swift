@@ -290,6 +290,36 @@ final class AudioCapture {
         let uid: String
         let sampleRate: Double
         let channels: UInt32
+        let transportType: UInt32
+
+        /// Opening a bluetooth input forces the headset into its bidirectional
+        /// call profile, which degrades playback and steals the headset from
+        /// whatever else was using it (phone, iPad).
+        var isBluetooth: Bool {
+            transportType == kAudioDeviceTransportTypeBluetooth
+                || transportType == kAudioDeviceTransportTypeBluetoothLE
+        }
+
+        /// Loopback/aggregate devices (BlackHole, Zoom, virtual cams) — real
+        /// audio never comes from these unless asked for by name.
+        var isVirtual: Bool {
+            transportType == kAudioDeviceTransportTypeVirtual
+                || transportType == kAudioDeviceTransportTypeAggregate
+        }
+
+        var transportLabel: String {
+            switch transportType {
+            case kAudioDeviceTransportTypeBuiltIn: return "built-in"
+            case kAudioDeviceTransportTypeUSB: return "usb"
+            case kAudioDeviceTransportTypeBluetooth: return "bluetooth"
+            case kAudioDeviceTransportTypeBluetoothLE: return "bluetooth-le"
+            case kAudioDeviceTransportTypeVirtual: return "virtual"
+            case kAudioDeviceTransportTypeAggregate: return "aggregate"
+            case kAudioDeviceTransportTypeContinuityCaptureWired,
+                 kAudioDeviceTransportTypeContinuityCaptureWireless: return "continuity"
+            default: return "other"
+            }
+        }
     }
 
     private func restoreSystemDefaultIfNeeded() {
@@ -368,6 +398,85 @@ final class AudioCapture {
         }
     }
 
+    /// How the input device was chosen — the caller decides what to do when
+    /// the configured devices simply are not present.
+    enum InputSelection {
+        case chosen(InputDeviceInfo, reason: String)
+        case unavailable(reason: String)
+    }
+
+    /// Resolve which mic to open from config, without ever opening one.
+    ///
+    /// Precedence: explicit `--input` (handled by the caller) → `inputPriority`
+    /// allow-list → `inputDevice` → system default. When nothing is configured
+    /// and the default is bluetooth, `avoidBluetoothInput` steers to a wired or
+    /// built-in mic instead of claiming the headset.
+    static func resolveInputDevice(config: AudioConfig) -> InputSelection {
+        let devices = allInputDevices()
+
+        if !config.inputPriority.isEmpty {
+            for query in config.inputPriority {
+                if query.lowercased() == AudioConfig.systemDefaultKeyword,
+                   let fallback = defaultInputDeviceInfo() {
+                    return .chosen(fallback, reason: "inputPriority → system default")
+                }
+                if let match = match(query, in: devices) {
+                    return .chosen(match, reason: "inputPriority '\(query)'")
+                }
+            }
+            // The list is an allow-list: never silently fall back to a device
+            // the user deliberately left off it.
+            return .unavailable(
+                reason: "none of inputPriority \(config.inputPriority) are connected"
+            )
+        }
+
+        if let requested = config.inputDevice, !requested.isEmpty {
+            if requested.lowercased() == AudioConfig.systemDefaultKeyword {
+                guard let info = defaultInputDeviceInfo() else {
+                    return .unavailable(reason: "no system default input device")
+                }
+                return .chosen(info, reason: "config inputDevice 'default'")
+            }
+            guard let match = match(requested, in: devices) else {
+                return .unavailable(reason: "config inputDevice '\(requested)' is not connected")
+            }
+            return .chosen(match, reason: "config inputDevice '\(requested)'")
+        }
+
+        guard let systemDefault = defaultInputDeviceInfo() else {
+            return .unavailable(reason: "no system default input device")
+        }
+
+        if config.avoidBluetoothInput && systemDefault.isBluetooth {
+            let preferredTransports: [UInt32] = [
+                kAudioDeviceTransportTypeUSB,
+                kAudioDeviceTransportTypeBuiltIn
+            ]
+            for transport in preferredTransports {
+                if let alternative = devices.first(where: { $0.transportType == transport }) {
+                    return .chosen(
+                        alternative,
+                        reason: "avoidBluetoothInput — skipped \(systemDefault.name)"
+                    )
+                }
+            }
+            print("WARNING: default input \(systemDefault.name) is bluetooth and no wired/built-in mic was found")
+        }
+
+        return .chosen(systemDefault, reason: "system default")
+    }
+
+    private static func match(_ query: String, in devices: [InputDeviceInfo]) -> InputDeviceInfo? {
+        let lower = query.lowercased()
+        if let exact = devices.first(where: { $0.name.lowercased() == lower || $0.uid == query }) {
+            return exact
+        }
+        return devices.first {
+            $0.name.lowercased().contains(lower) || $0.uid.lowercased().contains(lower)
+        }
+    }
+
     /// Find an input device by case-insensitive substring match on its name.
     static func findInputDevice(matching query: String) -> InputDeviceInfo? {
         let lower = query.lowercased()
@@ -385,8 +494,21 @@ final class AudioCapture {
             name: stringProperty(deviceID, kAudioObjectPropertyName) ?? "<unnamed>",
             uid: stringProperty(deviceID, kAudioDevicePropertyDeviceUID) ?? "<no-uid>",
             sampleRate: doubleProperty(deviceID, kAudioDevicePropertyNominalSampleRate) ?? 0,
-            channels: inputChannelCount(deviceID)
+            channels: inputChannelCount(deviceID),
+            transportType: uint32Property(deviceID, kAudioDevicePropertyTransportType) ?? 0
         )
+    }
+
+    private static func uint32Property(_ device: AudioDeviceID, _ selector: AudioObjectPropertySelector) -> UInt32? {
+        var addr = AudioObjectPropertyAddress(
+            mSelector: selector,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var value: UInt32 = 0
+        var size = UInt32(MemoryLayout<UInt32>.size)
+        let status = AudioObjectGetPropertyData(device, &addr, 0, nil, &size, &value)
+        return status == noErr ? value : nil
     }
 
     private static func stringProperty(_ device: AudioDeviceID, _ selector: AudioObjectPropertySelector) -> String? {

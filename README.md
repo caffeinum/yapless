@@ -77,11 +77,28 @@ yapless --record --animation-style waveform
     "pasteToActiveApp": true,
     "copyToClipboard": true
   },
+  "audio": {
+    "inputPriority": ["usb microphone", "MacBook Pro Microphone"],
+    "avoidBluetoothInput": true
+  },
   "storage": {
     "saveHistory": true
   }
 }
 ```
+
+### picking a microphone
+
+`audio.inputPriority` is an ordered **allow-list** — the first entry that's actually connected wins, and nothing off the list is ever opened. this is how you keep yapless off your AirPods: leave them off the list and they're never touched, even when macOS makes them the system default (which it does, silently, on every reconnect). if none of the listed devices are connected yapless stops and prints what *is* available, rather than quietly recording from something else.
+
+other forms:
+
+- `"inputDevice": "usb microphone"` — a single device (name or UID, substring ok)
+- `"inputDevice": "default"` — whatever macOS currently calls the default input
+- `"avoidBluetoothInput": true` (the default) — with nothing else configured, refuse a bluetooth default and use USB or built-in instead
+- `--input <name>` on the command line beats all of it, bluetooth included
+
+opening a bluetooth mic forces the headset into call mode: playback quality drops and the headset is yanked away from whatever else was using it. `yapless --list-inputs` marks those devices with ⚠︎.
 
 ### history
 

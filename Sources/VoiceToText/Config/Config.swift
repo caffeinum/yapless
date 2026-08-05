@@ -50,6 +50,33 @@ struct AnimationConfig: Codable {
     }
 }
 
+/// Which microphone yapless is allowed to open.
+///
+/// `inputPriority` is an allow-list, not a hint: if it is non-empty, only
+/// devices on it are ever opened. A device missing from the list — AirPods,
+/// say — is never touched, even if macOS has made it the system default.
+struct AudioConfig: Codable {
+    /// A device name/UID substring, or the literal "default" for whatever
+    /// macOS currently considers the default input.
+    var inputDevice: String? = nil
+    /// Ordered allow-list; first entry that is actually present wins.
+    var inputPriority: [String] = []
+    /// With no device or list configured, refuse to open a bluetooth default
+    /// and pick a wired/built-in mic instead.
+    var avoidBluetoothInput: Bool = true
+
+    static let systemDefaultKeyword = "default"
+
+    init() {}
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        inputDevice = try container.decodeIfPresent(String.self, forKey: .inputDevice)
+        inputPriority = try container.decodeIfPresent([String].self, forKey: .inputPriority) ?? []
+        avoidBluetoothInput = try container.decodeIfPresent(Bool.self, forKey: .avoidBluetoothInput) ?? true
+    }
+}
+
 enum TranscriptionBackend: String, Codable {
     case auto       // Auto-detect best available
     case groq       // Groq API (fastest, cloud)
@@ -140,11 +167,13 @@ struct Config: Codable {
     var whisper: WhisperConfig = WhisperConfig()
     var output: OutputConfig = OutputConfig()
     var storage: StorageConfig = StorageConfig()
+    var audio: AudioConfig = AudioConfig()
 
     init() {}
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        audio = try container.decodeIfPresent(AudioConfig.self, forKey: .audio) ?? AudioConfig()
         animation = try container.decodeIfPresent(AnimationConfig.self, forKey: .animation) ?? AnimationConfig()
         whisper = try container.decodeIfPresent(WhisperConfig.self, forKey: .whisper) ?? WhisperConfig()
         output = try container.decodeIfPresent(OutputConfig.self, forKey: .output) ?? OutputConfig()
