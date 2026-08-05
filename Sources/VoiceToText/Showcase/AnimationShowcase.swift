@@ -5,9 +5,10 @@ import AppKit
 
 final class ShowcaseWindowController {
     private var window: NSWindow?
+    private let state = ShowcaseState()
 
     func show() {
-        let contentView = NSHostingView(rootView: AnimationShowcaseView())
+        let contentView = NSHostingView(rootView: AnimationShowcaseView(state: state))
 
         window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1000, height: 700),
@@ -27,10 +28,20 @@ final class ShowcaseWindowController {
 
 // MARK: - Main Showcase View
 
+/// Owned by ShowcaseWindowController — an ObservableObject rather than @State so
+/// the showcase compiles without the SwiftUI macro plugin (CommandLineTools has none).
+final class ShowcaseState: ObservableObject {
+    @Published var audioLevel: CGFloat = 0.3
+    @Published var isRecording = true
+    @Published var isProcessing = false
+}
+
 struct AnimationShowcaseView: View {
-    @State private var audioLevel: CGFloat = 0.3
-    @State private var isRecording = true
-    @State private var isProcessing = false
+    @ObservedObject var state: ShowcaseState
+
+    private var audioLevel: CGFloat { state.audioLevel }
+    private var isRecording: Bool { state.isRecording }
+    private var isProcessing: Bool { state.isProcessing }
 
     var body: some View {
         VStack(spacing: 20) {
@@ -51,7 +62,7 @@ struct AnimationShowcaseView: View {
                 HStack {
                     Text("Audio Level")
                         .foregroundColor(.white)
-                    Slider(value: $audioLevel, in: 0...1)
+                    Slider(value: $state.audioLevel, in: 0...1)
                         .frame(width: 300)
                     Text("\(Int(audioLevel * 100))%")
                         .foregroundColor(.gray)
@@ -60,14 +71,14 @@ struct AnimationShowcaseView: View {
 
                 HStack(spacing: 20) {
                     Button("Recording") {
-                        isRecording = true
-                        isProcessing = false
+                        state.isRecording = true
+                        state.isProcessing = false
                     }
                     .buttonStyle(ShowcaseButtonStyle(isActive: isRecording && !isProcessing, color: .red))
 
                     Button("Processing") {
-                        isRecording = false
-                        isProcessing = true
+                        state.isRecording = false
+                        state.isProcessing = true
                     }
                     .buttonStyle(ShowcaseButtonStyle(isActive: isProcessing, color: .orange))
                 }
