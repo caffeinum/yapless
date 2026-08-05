@@ -161,33 +161,33 @@ struct PillFrame: View {
         let step = barWidth * (1 + gapRatio)
         let centerY = size.height / 2
         let maxHalf = size.height / 2
-        let center = CGFloat(barCount - 1) / 2
 
         for i in 0..<barCount {
-            let d = abs(CGFloat(i) - center) / center  // 0 at center, 1 at edge
-            let envelope = pow(cos(d * .pi / 2), 1.4)
-            let energy = energy(at: d)
+            // Spectrum reads left to right, low frequency to high — the shape
+            // follows your voice instead of mirroring it.
+            let position = CGFloat(i) / CGFloat(barCount - 1)
+            // Gentle bow so the capsule still tapers, without flattening the ends.
+            let envelope = 0.62 + 0.38 * sin(position * .pi)
+            let energy = energy(at: position)
 
-            // Dots at the edges grow into bars as they approach the center.
-            let half = max(barWidth / 2, maxHalf * envelope * (0.08 + energy * 0.92))
+            let half = max(barWidth / 2, maxHalf * envelope * (0.06 + energy * 0.94))
 
             let x = CGFloat(i) * step
             let rect = CGRect(x: x, y: centerY - half, width: barWidth, height: half * 2)
-            let color = coreColor.interpolated(to: edgeColor, amount: d)
-                .opacity(0.35 + Double(envelope) * 0.65)
+            let color = coreColor.interpolated(to: edgeColor, amount: position)
+                .opacity(0.45 + Double(envelope) * 0.55)
 
             context.fill(Capsule().path(in: rect), with: .color(color))
         }
     }
 
-    /// Bass in the middle, treble at the edges, with an idle breathing wave when silent.
+    /// `position` is 0 at the low-frequency end, 1 at the high end.
     private func energy(at d: CGFloat) -> CGFloat {
         if state == .processing {
-            // Pulse sweeping out from the center and back. Stops short of the
-            // edge so the envelope never flattens the whole pill into dots.
-            let sweep = 0.72 * CGFloat(abs(sin(time * 1.4)))
+            // Pulse sweeping across the pill and back.
+            let sweep = 0.5 + 0.5 * CGFloat(sin(time * 1.6))
             let dist = d - sweep
-            return 0.22 + exp(-dist * dist * 10) * 0.7
+            return 0.22 + exp(-dist * dist * 22) * 0.7
         }
 
         if state == .complete || state == .error {

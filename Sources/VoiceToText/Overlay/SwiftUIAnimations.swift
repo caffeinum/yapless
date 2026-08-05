@@ -84,6 +84,10 @@ class AnimationModel: ObservableObject {
     @Published var state: AnimationState = .recording
 
     private var lastUpdate: Date = Date()
+    /// Separate clock: AudioCapture fires onAudioLevel immediately before
+    /// onFrequencySpectrum, so sharing `lastUpdate` left the spectrum with
+    /// dt≈0 every frame — bars rose instantly and then never fell.
+    private var lastSpectrumUpdate: Date = Date()
 
     func updateAudioLevel(_ raw: CGFloat) {
         let now = Date()
@@ -102,7 +106,8 @@ class AnimationModel: ObservableObject {
 
     func updateSpectrum(_ bands: [Float]) {
         let now = Date()
-        let dt = now.timeIntervalSince(lastUpdate)
+        let dt = now.timeIntervalSince(lastSpectrumUpdate)
+        lastSpectrumUpdate = now
 
         spectrum = bands.map { CGFloat($0) }
 

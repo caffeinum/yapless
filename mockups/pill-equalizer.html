@@ -65,7 +65,7 @@
 <body>
 
 <h1>pill equalizer — color studies</h1>
-<p class="sub">29 mirrored bars, bass in the middle, edges decaying into dots. same geometry as <code style="display:inline">PillAnimationView.swift</code>.</p>
+<p class="sub">29 bars, low frequency on the left to high on the right. same geometry as <code style="display:inline">PillAnimationView.swift</code>.</p>
 
 <div class="controls">
   <label>voice level <input id="level" type="range" min="0" max="100" value="55"></label>
@@ -211,9 +211,9 @@ function sample(d) {
 
 function energy(d, t) {
   if (state === "processing") {
-    const sweep = 0.72 * Math.abs(Math.sin(t * 1.4));
+    const sweep = 0.5 + 0.5 * Math.sin(t * 1.6);
     const dist = d - sweep;
-    return 0.22 + Math.exp(-dist * dist * 10) * 0.7;
+    return 0.22 + Math.exp(-dist * dist * 22) * 0.7;
   }
   if (state === "complete" || state === "error") {
     return 0.12 + (Math.sin(t * 3 - d * 2.5) * 0.5 + 0.5) * 0.25;
@@ -247,15 +247,14 @@ function draw(t) {
     const gapRatio = 0.85;
     const barW = w / (BAR_COUNT * (1 + gapRatio) - gapRatio);
     const step = barW * (1 + gapRatio);
-    const center = (BAR_COUNT - 1) / 2;
-
+    
     for (let i = 0; i < BAR_COUNT; i++) {
-      const d = Math.abs(i - center) / center;
-      const envelope = Math.pow(Math.cos(d * Math.PI / 2), 1.4);
-      const half = Math.max(barW / 2, (h / 2) * envelope * (0.08 + energy(d, t) * 0.92));
+      const d = i / (BAR_COUNT - 1);            // low frequency → high, left to right
+      const envelope = 0.62 + 0.38 * Math.sin(d * Math.PI);
+      const half = Math.max(barW / 2, (h / 2) * envelope * (0.06 + energy(d, t) * 0.94));
 
       ctx.fillStyle = mix(core, edge, d);
-      ctx.globalAlpha = 0.35 + envelope * 0.65;
+      ctx.globalAlpha = 0.45 + envelope * 0.55;
       ctx.beginPath();
       ctx.roundRect(i * step, h / 2 - half, barW, half * 2, barW / 2);
       ctx.fill();
