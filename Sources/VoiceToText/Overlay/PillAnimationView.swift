@@ -227,16 +227,15 @@ struct PillFrame: View {
             return 0.12 + settle * 0.25
         }
 
-        let breathe = CGFloat(sin(time * 2.2 - Double(d) * 3.4)) * 0.5 + 0.5
-        let idle = 0.04 + breathe * 0.05
-
         switch mode {
         case .history:
-            return min(1, idle + sampleHistory(at: d) * 1.6)
+            let breathe = CGFloat(sin(time * 2.2 - Double(d) * 3.4)) * 0.5 + 0.5
+            return min(1, 0.04 + breathe * 0.05 + sampleHistory(at: d) * 1.6)
         case .bands:
-            // No loudness gate: AudioCapture subtracts each band's own noise
-            // floor, so silence already reads as zero everywhere.
-            return min(1, idle + sampleSpectrum(at: d))
+            // Flat rest state, no idle wave: a travelling sine across bars that
+            // are supposed to mean frequency is indistinguishable from noise.
+            // AudioCapture gates on absolute loudness, so silence reads as zero.
+            return min(1, 0.03 + sampleSpectrum(at: d))
         }
     }
 
