@@ -89,7 +89,7 @@ struct PillAnimationContent: View {
         TimelineView(.animation) { timeline in
             PillFrame(
                 time: timeline.date.timeIntervalSinceReferenceDate,
-                spectrum: model.smoothedSpectrum,
+                history: model.levelHistory,
                 level: model.smoothedLevel,
                 state: model.state,
                 config: config
@@ -100,7 +100,8 @@ struct PillAnimationContent: View {
 
 struct PillFrame: View {
     let time: Double
-    let spectrum: [CGFloat]
+    /// Loudness over the last ~1.5s, oldest first.
+    let history: [CGFloat]
     let level: CGFloat
     let state: AnimationState
     let config: AnimationConfig
@@ -163,8 +164,8 @@ struct PillFrame: View {
         let maxHalf = size.height / 2
 
         for i in 0..<barCount {
-            // Spectrum reads left to right, low frequency to high — the shape
-            // follows your voice instead of mirroring it.
+            // Time reads left to right: oldest at the left edge, what you are
+            // saying right now at the right.
             let position = CGFloat(i) / CGFloat(barCount - 1)
             // Gentle bow so the capsule still tapers, without flattening the ends.
             let envelope = 0.62 + 0.38 * sin(position * .pi)
@@ -195,22 +196,25 @@ struct PillFrame: View {
             return 0.12 + settle * 0.25
         }
 
-        let band = sampleSpectrum(at: d)
+        let recorded = sampleHistory(at: d)
         let breathe = CGFloat(sin(time * 2.2 - Double(d) * 3.4)) * 0.5 + 0.5
         let idle = 0.04 + breathe * 0.05
-        return min(1, idle + band * (0.35 + level * 0.85))
+        return min(1, idle + recorded * 1.6)
     }
 
-    /// Linear interpolation between neighbouring FFT bands so bars read as one fluid curve.
-    private func sampleSpectrum(at d: CGFloat) -> CGFloat {
-        guard !spectrum.isEmpty else { return 0 }
-        if spectrum.count == 1 { return spectrum[0] }
+    /// The history is shorter than the bar row until you've been talking for a
+    /// moment, so it's anchored to the right — new audio arrives at the live
+    /// end and scrolls left, and the empty past stays flat.
+    private func sampleHistory(at d: CGFloat) -> CGFloat {
+        guard !history.isEmpty else { return 0 }
 
-        let pos = d * CGFloat(spectrum.count - 1)
-        let lower = Int(pos)
-        let upper = min(lower + 1, spectrum.count - 1)
-        let frac = pos - CGFloat(lower)
-        return spectrum[lower] + (spectrum[upper] - spectrum[lower]) * frac
+        let barsFromRight = (1 - d) * CGFloat(barCount - 1)
+        let index = CGFloat(history.count - 1) - barsFromRight
+        guard index >= 0 else { return 0 }
+
+        let lower = Int(index)
+        let upper = min(lower + 1, history.count - 1)
+        return history[lower] + (history[upper] - history[lower]) * (index - CGFloat(lower))
     }
 }
 

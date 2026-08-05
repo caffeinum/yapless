@@ -20,6 +20,8 @@ final class AudioCapture {
     var preferredDevice: InputDeviceInfo?
     /// Saved system default before we switched it; restored on stopRecording.
     private var savedSystemDefaultDeviceID: AudioDeviceID?
+    /// Decaying peak used to normalise the spectrum across frames.
+    private var spectrumPeak: Float = 0
     private var bufferCount: Int = 0
     private var bufferMaxSample: Float = 0
     private var bufferRMSSum: Float = 0
@@ -254,31 +256,44 @@ final class AudioCapture {
         }
 
         var bands = [Float](repeating: 0, count: frequencyBands)
-        let nyquist = fftSize / 2
+        let binCount = fftSize / 2
+        let binWidth = Float(buffer.format.sampleRate) / Float(fftSize)
+
+        // Log-spaced across the speech range. The old mapping spread bands over
+        // bin *indices*, which handed the top half of the bands everything above
+        // ~1kHz — where voice has almost no energy — so those bars never moved.
+        let lowestHz: Float = 80
+        let highestHz = min(8000, Float(buffer.format.sampleRate) / 2 * 0.9)
+        let ratio = highestHz / lowestHz
 
         for band in 0..<frequencyBands {
-            let lowBin = Int(pow(Float(nyquist), Float(band) / Float(frequencyBands)))
-            let highBin = Int(pow(Float(nyquist), Float(band + 1) / Float(frequencyBands)))
+            let lowHz = lowestHz * pow(ratio, Float(band) / Float(frequencyBands))
+            let highHz = lowestHz * pow(ratio, Float(band + 1) / Float(frequencyBands))
 
-            let start = max(1, lowBin)
-            let end = min(nyquist, highBin)
+            let start = max(1, Int(lowHz / binWidth))
+            let end = min(binCount, max(start + 1, Int(highHz / binWidth)))
 
-            if end > start {
-                var sum: Float = 0
-                vDSP_sve(&magnitudes[start], 1, &sum, vDSP_Length(end - start))
-                bands[band] = sum / Float(end - start)
-            }
+            guard end > start else { continue }
+            var sum: Float = 0
+            vDSP_sve(&magnitudes[start], 1, &sum, vDSP_Length(end - start))
+
+            // Voice rolls off with frequency; without a tilt the high bands are
+            // permanently dwarfed by the fundamental.
+            let centreHz = (lowHz + highHz) / 2
+            let tilt = sqrt(centreHz / lowestHz)
+            bands[band] = (sum / Float(end - start)) * tilt
         }
 
-        var maxVal: Float = 0
-        vDSP_maxv(bands, 1, &maxVal, vDSP_Length(frequencyBands))
-        if maxVal > 0 {
-            var scale = 1.0 / maxVal
-            vDSP_vsmul(bands, 1, &scale, &bands, 1, vDSP_Length(frequencyBands))
-        }
+        var frameMax: Float = 0
+        vDSP_maxv(bands, 1, &frameMax, vDSP_Length(frequencyBands))
+
+        // Normalise against a decaying peak, not this frame's max — otherwise
+        // some band is pinned at 1.0 even in silence.
+        spectrumPeak = max(frameMax, spectrumPeak * 0.985)
+        let scale = 1.0 / max(spectrumPeak, 1e-5)
 
         for i in 0..<frequencyBands {
-            bands[i] = min(1.0, bands[i] * 3.0)
+            bands[i] = min(1.0, bands[i] * scale)
         }
 
         return bands

@@ -82,7 +82,15 @@ class AnimationModel: ObservableObject {
     @Published var spectrum: [CGFloat] = Array(repeating: 0, count: 14)
     @Published var smoothedSpectrum: [CGFloat] = Array(repeating: 0, count: 14)
     @Published var state: AnimationState = .recording
+    /// Recent loudness, oldest first — a scrolling picture of what you just
+    /// said. A frequency spectrum can't fill a bar row: voice energy lives
+    /// almost entirely below ~1kHz, so the treble bars would sit still.
+    @Published var levelHistory: [CGFloat] = []
 
+    static let historyLength = 48
+    private static let historyInterval: TimeInterval = 0.035
+
+    private var lastHistoryPush: Date = .distantPast
     private var lastUpdate: Date = Date()
     /// Separate clock: AudioCapture fires onAudioLevel immediately before
     /// onFrequencySpectrum, so sharing `lastUpdate` left the spectrum with
@@ -101,6 +109,16 @@ class AnimationModel: ObservableObject {
             smoothedLevel = raw
         } else {
             smoothedLevel = smoothedLevel + (raw - smoothedLevel) * min(1.0, CGFloat(dt) * 5)
+        }
+
+        // Sampled on a clock, not per buffer — buffers arrive far faster than
+        // the eye can follow and the row would blur into noise.
+        if now.timeIntervalSince(lastHistoryPush) >= Self.historyInterval {
+            lastHistoryPush = now
+            levelHistory.append(max(raw, smoothedLevel))
+            if levelHistory.count > Self.historyLength {
+                levelHistory.removeFirst(levelHistory.count - Self.historyLength)
+            }
         }
     }
 

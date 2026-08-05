@@ -100,7 +100,11 @@ struct VoiceToText: ParsableCommand {
         guard status == 0 else {
             throw ValidationError("detach failed: posix_spawn returned \(status)")
         }
-        print("yapless detached (pid \(pid)) — log: \(logURL.path)")
+        // Raycast surfaces anything a script prints as a HUD. Only say this
+        // when a human is actually looking at a terminal.
+        if isatty(STDOUT_FILENO) == 1 {
+            print("yapless detached (pid \(pid)) — log: \(logURL.path)")
+        }
     }
 
     /// Apply the `--backend` CLI flag over whatever the config file specified.

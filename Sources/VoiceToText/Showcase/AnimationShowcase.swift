@@ -323,7 +323,7 @@ struct PillShowcaseView: View {
             let t = timeline.date.timeIntervalSinceReferenceDate
             PillFrame(
                 time: t,
-                spectrum: syntheticSpectrum(time: t),
+                history: syntheticHistory(time: t),
                 level: audioLevel,
                 state: .recording,
                 config: config
@@ -335,11 +335,13 @@ struct PillShowcaseView: View {
         }
     }
 
-    /// Showcase has no mic — fake a plausible spectrum so the bars move.
-    private func syntheticSpectrum(time: Double) -> [CGFloat] {
-        (0..<14).map { i in
-            let wobble = sin(time * 5 + Double(i) * 0.9) * 0.5 + 0.5
-            return audioLevel * CGFloat(wobble) * (1.0 - CGFloat(i) / 20)
+    /// Showcase has no mic — fake a scrolling loudness history so the bars move.
+    private func syntheticHistory(time: Double) -> [CGFloat] {
+        (0..<AnimationModel.historyLength).map { i in
+            let age = Double(AnimationModel.historyLength - i) * 0.035
+            let speech = sin((time - age) * 7) * 0.5 + 0.5
+            let syllables = max(0, sin((time - age) * 2.3))
+            return audioLevel * CGFloat(speech * syllables)
         }
     }
 }
