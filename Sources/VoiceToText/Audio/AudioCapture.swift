@@ -20,8 +20,10 @@ final class AudioCapture {
     var preferredDevice: InputDeviceInfo?
     /// Saved system default before we switched it; restored on stopRecording.
     private var savedSystemDefaultDeviceID: AudioDeviceID?
-    /// Decaying peak used to normalise the spectrum across frames.
+    /// Decaying peaks used to normalise the spectrum across frames.
     private var spectrumPeak: Float = 0
+    private lazy var bandPeaks = [Float](repeating: 0, count: frequencyBands)
+    private lazy var bandFloors = [Float](repeating: 0, count: frequencyBands)
     private var bufferCount: Int = 0
     private var bufferMaxSample: Float = 0
     private var bufferRMSSum: Float = 0
@@ -290,10 +292,22 @@ final class AudioCapture {
         // Normalise against a decaying peak, not this frame's max — otherwise
         // some band is pinned at 1.0 even in silence.
         spectrumPeak = max(frameMax, spectrumPeak * 0.985)
-        let scale = 1.0 / max(spectrumPeak, 1e-5)
 
+        // Each band is normalised across its OWN range: subtract that band's
+        // noise floor, divide by its own recent peak. A shared floor doesn't
+        // work — voice energy spans orders of magnitude between the fundamental
+        // and 6kHz, so any global divisor pins the loud band at 1.0 and leaves
+        // the rest flat against the bottom of the scale.
+        //
+        // Silence needs no separate gate: with nothing but room tone, every
+        // band sits at its own floor, so every bar reads zero.
         for i in 0..<frequencyBands {
-            bands[i] = min(1.0, bands[i] * scale)
+            let magnitude = bands[i]
+            bandFloors[i] = min(magnitude, bandFloors[i] + (magnitude - bandFloors[i]) * 0.02)
+            bandPeaks[i] = max(magnitude, bandPeaks[i] * 0.99)
+
+            let range = max(bandPeaks[i] - bandFloors[i], 1e-6)
+            bands[i] = min(1.0, max(0, (magnitude - bandFloors[i]) / range))
         }
 
         return bands

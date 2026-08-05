@@ -59,7 +59,7 @@ final class OverlayWindow: NSWindow {
         // Pill is a small wide capsule — roughly 2x cursor height, never a
         // screen-hogging banner. Its window carries an extra shadow margin.
         // Every other windowed style is square.
-        let size: CGSize = config.style == .pill
+        let size: CGSize = (config.style == .pill || config.style == .equalizer)
             ? PillMetrics.windowSize(base: base)
             : CGSize(width: base, height: base)
 
@@ -251,7 +251,9 @@ final class OverlayWindow: NSWindow {
         case .dot:
             animationView = NewDotCursorAnimationView(config: animationConfig)
         case .pill:
-            animationView = NewPillAnimationView(config: animationConfig)
+            animationView = NewPillAnimationView(config: animationConfig, mode: .history)
+        case .equalizer:
+            animationView = NewPillAnimationView(config: animationConfig, mode: .bands)
         }
 
         animationView.frame = contentView?.bounds ?? .zero

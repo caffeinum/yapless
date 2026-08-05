@@ -30,14 +30,22 @@ enum PillMetrics {
     }
 }
 
+/// What the bars mean. Same capsule, two readings of the same voice.
+enum PillMode {
+    /// Bar position is time: the last ~1.7s of loudness, scrolling.
+    case history
+    /// Bar position is frequency: fixed bands, each rising and falling in place.
+    case bands
+}
+
 final class NewPillAnimationView: NSView, AnimationView {
     let config: AnimationConfig
     private let hostingView: NSHostingView<PillAnimationContent>
     private let model = AnimationModel()
 
-    init(config: AnimationConfig) {
+    init(config: AnimationConfig, mode: PillMode) {
         self.config = config
-        self.hostingView = NSHostingView(rootView: PillAnimationContent(model: model, config: config))
+        self.hostingView = NSHostingView(rootView: PillAnimationContent(model: model, config: config, mode: mode))
 
         super.init(frame: .zero)
 
@@ -84,15 +92,18 @@ final class NewPillAnimationView: NSView, AnimationView {
 struct PillAnimationContent: View {
     @ObservedObject var model: AnimationModel
     let config: AnimationConfig
+    let mode: PillMode
 
     var body: some View {
         TimelineView(.animation) { timeline in
             PillFrame(
                 time: timeline.date.timeIntervalSinceReferenceDate,
                 history: model.levelHistory,
+                spectrum: model.smoothedSpectrum,
                 level: model.smoothedLevel,
                 state: model.state,
-                config: config
+                config: config,
+                mode: mode
             )
         }
     }
@@ -100,11 +111,14 @@ struct PillAnimationContent: View {
 
 struct PillFrame: View {
     let time: Double
-    /// Loudness over the last ~1.5s, oldest first.
+    /// Loudness over the last ~1.7s, oldest first.
     let history: [CGFloat]
+    /// Per-band energy, low frequency first.
+    let spectrum: [CGFloat]
     let level: CGFloat
     let state: AnimationState
     let config: AnimationConfig
+    let mode: PillMode
 
     private var primary: Color {
         Color(nsColor: NSColor(hex: config.primaryColor) ?? .systemBlue)
@@ -152,20 +166,29 @@ struct PillFrame: View {
         .opacity(config.opacity)
     }
 
-    private let barCount = 29
+    /// Bands mode uses one bar per FFT band so each bar is a real band, not an
+    /// interpolation of two; history mode can afford finer bars.
+    private var barCount: Int {
+        switch mode {
+        case .history: return 29
+        case .bands: return 15
+        }
+    }
 
     private func drawBars(context: GraphicsContext, size: CGSize) {
         guard size.width > 0, size.height > 0 else { return }
 
-        let gapRatio: CGFloat = 0.85  // gap = barWidth * gapRatio
+        let barCount = self.barCount
+        let gapRatio: CGFloat = mode == .bands ? 0.55 : 0.85
         let barWidth = size.width / (CGFloat(barCount) * (1 + gapRatio) - gapRatio)
         let step = barWidth * (1 + gapRatio)
         let centerY = size.height / 2
         let maxHalf = size.height / 2
 
         for i in 0..<barCount {
-            // Time reads left to right: oldest at the left edge, what you are
-            // saying right now at the right.
+            // history: position is time, oldest left, live right.
+            // bands: position is frequency, low left, high right — each bar
+            // stays put and only changes height.
             let position = CGFloat(i) / CGFloat(barCount - 1)
             // Gentle bow so the capsule still tapers, without flattening the ends.
             let envelope = 0.62 + 0.38 * sin(position * .pi)
@@ -196,10 +219,24 @@ struct PillFrame: View {
             return 0.12 + settle * 0.25
         }
 
-        let recorded = sampleHistory(at: d)
         let breathe = CGFloat(sin(time * 2.2 - Double(d) * 3.4)) * 0.5 + 0.5
         let idle = 0.04 + breathe * 0.05
-        return min(1, idle + recorded * 1.6)
+
+        switch mode {
+        case .history:
+            return min(1, idle + sampleHistory(at: d) * 1.6)
+        case .bands:
+            // No loudness gate: AudioCapture subtracts each band's own noise
+            // floor, so silence already reads as zero everywhere.
+            return min(1, idle + sampleSpectrum(at: d))
+        }
+    }
+
+    /// One bar per band, so this is a straight lookup rather than a resample.
+    private func sampleSpectrum(at d: CGFloat) -> CGFloat {
+        guard !spectrum.isEmpty else { return 0 }
+        let index = Int((d * CGFloat(spectrum.count - 1)).rounded())
+        return spectrum[min(max(index, 0), spectrum.count - 1)]
     }
 
     /// The history is shorter than the bar row until you've been talking for a

@@ -139,7 +139,8 @@ to disable, set `storage.saveHistory` to `false` in config.
 | `glow` | screen edge glow (dynamic island vibes) |
 | `siri` | multi-colored wave lines |
 | `dot` | cursor becomes a dot that pulses with voice (default) |
-| `pill` | floating capsule with a mirrored equalizer |
+| `pill` | floating capsule, bars scroll with your loudness over the last ~1.7s |
+| `equalizer` | same capsule, fixed frequency bands rising and falling in place |
 
 ## how it works
 

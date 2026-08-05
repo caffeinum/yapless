@@ -8,6 +8,7 @@ enum AnimationStyle: String, Codable, CaseIterable {
     case cursor = "cursor"
     case dot = "dot"
     case pill = "pill"
+    case equalizer = "equalizer"
 
     var description: String {
         switch self {
@@ -17,7 +18,8 @@ enum AnimationStyle: String, Codable, CaseIterable {
         case .siri: return "Multi-colored Siri wave lines"
         case .cursor: return "Cursor-following indicator"
         case .dot: return "Cursor becomes a black dot that pulses with voice"
-        case .pill: return "Floating capsule with a mirrored spectrum equalizer"
+        case .pill: return "Floating capsule showing the last ~1.7s of loudness, scrolling"
+        case .equalizer: return "Floating capsule with fixed frequency bands, no scrolling"
         }
     }
 }

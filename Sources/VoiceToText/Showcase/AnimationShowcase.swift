@@ -55,6 +55,7 @@ struct AnimationShowcaseView: View {
                 AnimationCard(title: "Glow", style: .glow, audioLevel: audioLevel)
                 AnimationCard(title: "Siri", style: .siri, audioLevel: audioLevel)
                 AnimationCard(title: "Pill", style: .pill, audioLevel: audioLevel)
+                AnimationCard(title: "Equalizer", style: .equalizer, audioLevel: audioLevel)
             }
             .padding()
 
@@ -141,12 +142,14 @@ struct AnimationCard: View {
             SiriShowcaseView(audioLevel: audioLevel)
         case .pill:
             PillShowcaseView(audioLevel: audioLevel)
+        case .equalizer:
+            PillShowcaseView(audioLevel: audioLevel, mode: .bands)
         }
     }
 }
 
 enum ShowcaseAnimationStyle {
-    case orb, waveform, glow, siri, pill
+    case orb, waveform, glow, siri, pill, equalizer
 }
 
 // MARK: - Orb Animation (inspired by metasidd/Orb)
@@ -311,6 +314,7 @@ struct GlowShowcaseView: View {
 
 struct PillShowcaseView: View {
     let audioLevel: CGFloat
+    var mode: PillMode = .history
 
     private var config: AnimationConfig {
         var config = AnimationConfig()
@@ -324,14 +328,24 @@ struct PillShowcaseView: View {
             PillFrame(
                 time: t,
                 history: syntheticHistory(time: t),
+                spectrum: syntheticSpectrum(time: t),
                 level: audioLevel,
                 state: .recording,
-                config: config
+                config: config,
+                mode: mode
             )
             .frame(
                 width: PillMetrics.windowSize(base: 120).width,
                 height: PillMetrics.windowSize(base: 120).height
             )
+        }
+    }
+
+    /// Showcase has no mic — fake per-band energy so the bands move.
+    private func syntheticSpectrum(time: Double) -> [CGFloat] {
+        (0..<14).map { i in
+            let wobble = sin(time * (3.5 + Double(i) * 0.6) + Double(i)) * 0.5 + 0.5
+            return audioLevel * CGFloat(wobble)
         }
     }
 
