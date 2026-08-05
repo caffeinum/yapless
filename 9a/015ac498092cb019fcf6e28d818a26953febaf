@@ -1,0 +1,45 @@
+Sources/VoiceToText/Config/Config.swift
+  s_af6ac2936cd2ef::t_8e46d2a81b10d0 11
+  s_af6ac2936cd2ef::t_7631c729ed2674 21-22
+Sources/VoiceToText/Audio/AudioCapture.swift
+  s_af6ac2936cd2ef::t_62b88322467e48 23,25
+  s_af6ac2936cd2ef::t_a979ac7b8e7d90 26
+  s_af6ac2936cd2ef::t_bb61b289568761 296-303,305-310
+Sources/VoiceToText/Overlay/PillAnimationView.swift
+  s_af6ac2936cd2ef::t_f1467ab51f1104 169-176,181-182,189-191
+  s_af6ac2936cd2ef::t_ae513c2111c9ca 224-228,232-239
+  s_af6ac2936cd2ef::t_a979ac7b8e7d90 229-231
+  s_af6ac2936cd2ef::t_015fc73107094b 33-40,46,48
+  s_af6ac2936cd2ef::t_8a0d305ae96db4 114,116-117,121
+  s_af6ac2936cd2ef::t_a0e82ce8221ce9 95,102,105-106
+README.md
+  s_af6ac2936cd2ef::t_056bcc63b31058 142-143
+Sources/VoiceToText/Overlay/OverlayWindow.swift
+  s_af6ac2936cd2ef::t_94189c4335d3e9 62
+  s_af6ac2936cd2ef::t_8563537328a202 254-256
+CLAUDE.md
+  s_af6ac2936cd2ef::t_056bcc63b31058 81
+Sources/VoiceToText/main.swift
+  s_af6ac2936cd2ef::t_056bcc63b31058 28
+Sources/VoiceToText/Showcase/AnimationShowcase.swift
+  s_af6ac2936cd2ef::t_e0512d4ea01d1a 344-351
+  s_af6ac2936cd2ef::t_35b17246f4a48b 58,145-146,152
+  s_af6ac2936cd2ef::t_5708d5b46e2093 331,334-335
+  s_af6ac2936cd2ef::t_6dafe3c5f3ca49 317
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "9a015ac498092cb019fcf6e28d818a26953febaf",
+  "prompts": {},
+  "sessions": {
+    "s_af6ac2936cd2ef": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f895d0ef-8bdc-4d75-a045-5a3c805b6dad",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Aleksey Bykhun <theisease@gmail.com>"
+    }
+  }
+}
