@@ -1,0 +1,25 @@
+Sources/VoiceToText/Overlay/SwiftUIAnimations.swift
+  s_af6ac2936cd2ef::t_e859f1b06ac308 109-110
+  s_af6ac2936cd2ef::t_4df184421d4abb 87-90
+Sources/VoiceToText/Overlay/PillAnimationView.swift
+  s_af6ac2936cd2ef::t_3097f1ba4f2378 187-188,190
+  s_af6ac2936cd2ef::t_3b0c686d58ab31 166-171,173,177-178,184
+mockups/pill-equalizer.html
+  s_af6ac2936cd2ef::t_a9f57bcd539023 68,214,216,250,252-254,257
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "674b22b0d08415e4e0abea8dd7eea27d1bf9bb96",
+  "prompts": {},
+  "sessions": {
+    "s_af6ac2936cd2ef": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f895d0ef-8bdc-4d75-a045-5a3c805b6dad",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Aleksey Bykhun <theisease@gmail.com>"
+    }
+  }
+}
