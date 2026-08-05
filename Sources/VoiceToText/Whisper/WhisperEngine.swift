@@ -26,6 +26,9 @@ final class WhisperEngine {
     enum WhisperError: Error, LocalizedError {
         case binaryNotFound
         case transcriptionFailed(String)
+        /// Auth/billing/bad-request failures — retrying cannot fix these, so the
+        /// chain skips straight to the next provider.
+        case permanentFailure(String)
         case invalidAudioFile
         case apiKeyMissing
 
@@ -35,6 +38,8 @@ final class WhisperEngine {
                 return "No whisper binary found. Install with: brew install openai-whisper"
             case .transcriptionFailed(let message):
                 return "Transcription failed: \(message)"
+            case .permanentFailure(let message):
+                return "Transcription failed (not retryable): \(message)"
             case .invalidAudioFile:
                 return "Invalid audio file"
             case .apiKeyMissing:
@@ -211,6 +216,11 @@ final class WhisperEngine {
                     } catch {
                         lastError = error
                         fputs("[\(variant)] attempt \(attempt + 1) failed: \(error.localizedDescription)\n", stderr)
+
+                        if case WhisperError.permanentFailure = error {
+                            fputs("[\(variant)] not retryable, skipping remaining attempts\n", stderr)
+                            break
+                        }
                     }
                 }
 
@@ -409,20 +419,22 @@ final class WhisperEngine {
     private func replicateRequest(_ request: URLRequest) throws -> [String: Any] {
         var json: [String: Any]?
         var requestError: Error?
+        var httpStatus = 0
         let semaphore = DispatchSemaphore(value: 0)
 
-        let task = URLSession.shared.dataTask(with: request) { data, _, error in
+        let task = URLSession.shared.dataTask(with: request) { data, response, error in
             defer { semaphore.signal() }
             if let error = error { requestError = error; return }
+            httpStatus = (response as? HTTPURLResponse)?.statusCode ?? 0
             guard let data = data else {
-                requestError = WhisperError.transcriptionFailed("No data from Replicate")
+                requestError = WhisperError.transcriptionFailed("No data from Replicate (HTTP \(httpStatus))")
                 return
             }
             if let parsed = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
                 json = parsed
             } else {
                 let body = String(data: data, encoding: .utf8) ?? "Unknown response"
-                requestError = WhisperError.transcriptionFailed(body)
+                requestError = WhisperError.transcriptionFailed("HTTP \(httpStatus): \(body)")
             }
         }
         task.resume()
@@ -430,12 +442,28 @@ final class WhisperEngine {
 
         if let error = requestError { throw error }
         guard let json = json else {
-            throw WhisperError.transcriptionFailed("Empty Replicate response")
+            throw WhisperError.transcriptionFailed("Empty Replicate response (HTTP \(httpStatus))")
         }
-        // Surface API-level errors (e.g. invalid token, bad version).
-        if let detail = json["detail"] as? String, json["status"] == nil, json["output"] == nil {
-            throw WhisperError.transcriptionFailed(detail)
+
+        // Any non-2xx is an API error, not a prediction. Replicate's error bodies
+        // carry `status` as an Int http code (e.g. 402 insufficient credit), which
+        // looks just like a prediction's `status` string — so key off HTTP, not
+        // the payload shape, or the real reason gets swallowed and resurfaces
+        // later as a bogus "missing poll URL".
+        if httpStatus >= 400 {
+            let title = json["title"] as? String
+            let detail = json["detail"] as? String
+            let joined = [title, detail].compactMap { $0 }.joined(separator: ": ")
+            let message = joined.isEmpty ? "Replicate HTTP \(httpStatus)" : "HTTP \(httpStatus) — \(joined)"
+
+            // 401/402/403/404/422 stay broken until the account changes; only
+            // rate limits and server errors are worth a retry.
+            if [401, 402, 403, 404, 422].contains(httpStatus) {
+                throw WhisperError.permanentFailure(message)
+            }
+            throw WhisperError.transcriptionFailed(message)
         }
+
         return json
     }
 
