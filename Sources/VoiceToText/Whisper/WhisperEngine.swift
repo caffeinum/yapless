@@ -631,30 +631,59 @@ final class WhisperEngine {
             throw WhisperError.transcriptionFailed(errorMessage)
         }
 
-        // For openai-whisper, read the output txt file
-        if variant == .openaiWhisper {
-            let audioFilename = (audioPath as NSString).lastPathComponent
-            let baseName = (audioFilename as NSString).deletingPathExtension
-            let txtPath = FileManager.default.temporaryDirectory.appendingPathComponent("\(baseName).txt").path
-
-            if FileManager.default.fileExists(atPath: txtPath) {
-                let text = try String(contentsOfFile: txtPath, encoding: .utf8)
-                try? FileManager.default.removeItem(atPath: txtPath)
-                return text.trimmingCharacters(in: .whitespacesAndNewlines)
-            }
+        // openai-whisper and whisper-cpp write the transcript to a FILE. If that
+        // file is missing the run failed — openai-whisper exits 0 even when it
+        // could not decode the audio ("Skipping foo.wav due to RuntimeError:
+        // Failed to load audio: dyld…"), and that message goes to stdout. The
+        // old code fell through and returned stdout as the transcript, so a
+        // failed run got pasted — or piped onward — as if it were speech.
+        let diagnostics = { () -> String in
+            let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
+            let stderrText = String(data: errorData, encoding: .utf8) ?? ""
+            return [output, stderrText]
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+                .joined(separator: " | ")
         }
 
-        // For whisper.cpp, check for generated txt file
-        if variant == .whisperCpp {
-            let txtPath = audioPath + ".txt"
-            if FileManager.default.fileExists(atPath: txtPath) {
-                let text = try String(contentsOfFile: txtPath, encoding: .utf8)
-                try? FileManager.default.removeItem(atPath: txtPath)
-                return text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let txtPath = transcriptFilePath(for: variant, audioPath: audioPath) {
+            guard FileManager.default.fileExists(atPath: txtPath) else {
+                throw WhisperError.transcriptionFailed(
+                    "\(variant) produced no transcript file (exit \(process.terminationStatus)): \(diagnostics())"
+                )
             }
+            let text = try String(contentsOfFile: txtPath, encoding: .utf8)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            try? FileManager.default.removeItem(atPath: txtPath)
+
+            guard !text.isEmpty else {
+                throw WhisperError.transcriptionFailed("\(variant) returned an empty transcript")
+            }
+            return text
         }
 
-        return output.trimmingCharacters(in: .whitespacesAndNewlines)
+        // whisperKit prints to stdout; nothing there means nothing was heard.
+        let text = output.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else {
+            throw WhisperError.transcriptionFailed(
+                "\(variant) returned no transcript: \(diagnostics())"
+            )
+        }
+        return text
+    }
+
+    /// Where this backend writes its transcript, or nil if it prints to stdout.
+    private func transcriptFilePath(for variant: WhisperVariant, audioPath: String) -> String? {
+        switch variant {
+        case .openaiWhisper:
+            let baseName = ((audioPath as NSString).lastPathComponent as NSString).deletingPathExtension
+            return FileManager.default.temporaryDirectory
+                .appendingPathComponent("\(baseName).txt").path
+        case .whisperCpp:
+            return audioPath + ".txt"
+        default:
+            return nil
+        }
     }
 
     private func findWhisperCppModel() -> String {

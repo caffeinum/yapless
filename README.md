@@ -106,6 +106,21 @@ yapless --record --paste --detach
 
 output goes to `~/.local/share/yapless/detached.log`. the bundled `raycast/*.sh` already use it.
 
+### sending the transcript somewhere else
+
+`output.command` hands the finished transcript to any command on **stdin**, alongside the usual clipboard/paste:
+
+```json
+"output": {
+  "command": "/absolute/path/to/your-script",
+  "commandTimeout": 5.0
+}
+```
+
+or per-run: `yapless --record --output-command /absolute/path/to/your-script`
+
+the transcript arrives on stdin (never as an argument — dictation contains quotes, and arguments show up in `ps`), with `YAPLESS_TRANSCRIPT_LENGTH` set. yapless waits up to `commandTimeout` seconds for the command, then kills it, so a slow sink can't hang your dictation and a forked one can't be killed mid-flight. use an absolute path: under `--detach` there's no login shell PATH.
+
 ### picking a microphone
 
 `audio.inputPriority` is an ordered **allow-list** — the first entry that's actually connected wins, and nothing off the list is ever opened. this is how you keep yapless off your AirPods: leave them off the list and they're never touched, even when macOS makes them the system default (which it does, silently, on every reconnect). if none of the listed devices are connected yapless stops and prints what *is* available, rather than quietly recording from something else.

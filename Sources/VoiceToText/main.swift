@@ -46,6 +46,9 @@ struct VoiceToText: ParsableCommand {
     @Option(name: .long, help: "Record for a fixed duration (seconds) without overlay/keyboard capture, then transcribe and exit")
     var duration: Double?
 
+    @Option(name: .long, help: "Shell command handed the transcript on stdin (overrides config output.command)")
+    var outputCommand: String?
+
     @Flag(name: .long, help: "Show animation showcase window")
     var showcase = false
 
@@ -196,6 +199,25 @@ struct VoiceToText: ParsableCommand {
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString(text, forType: .string)
                 }
+
+                // Re-transcribing feeds the sink too, otherwise "why didn't it
+                // send?" depends on which entry point you happened to use.
+                let sinkCommand = outputCommand ?? appConfig.output.command
+                if let sinkCommand = sinkCommand, !sinkCommand.isEmpty {
+                    var sinkConfig = appConfig.output
+                    sinkConfig.command = sinkCommand
+                    sinkConfig.copyToClipboard = false
+                    sinkConfig.pasteToActiveApp = false
+                    sinkConfig.playCompletionSound = false
+
+                    let sink = OutputHandler(config: sinkConfig)
+                    let done = DispatchSemaphore(value: 0)
+                    sink.handle(text: text) { done.signal() }
+                    // handle() hops to main for its completion, which never runs
+                    // here — this path owns the main thread. Wait on the child
+                    // directly instead.
+                    _ = done.wait(timeout: .now() + sinkConfig.commandTimeout + 1)
+                }
                 throw ExitCode.success
             case .failure(let error):
                 print("Transcription failed: \(error.localizedDescription)")
@@ -227,10 +249,13 @@ struct VoiceToText: ParsableCommand {
         applyBackendOverride(&appConfig)
         print("Backend: \(appConfig.whisper.backend), API key present: \(appConfig.whisper.groqApiKey != nil)")
 
-        // Override animation style if provided via CLI
+        // Apply CLI overrides over whatever the config file specified
         var finalConfig = appConfig
         if let style = animationStyle {
             finalConfig.animation.style = AnimationStyle(rawValue: style) ?? appConfig.animation.style
+        }
+        if let outputCommand = outputCommand {
+            finalConfig.output.command = outputCommand
         }
 
         // Initialize the app controller

@@ -28,24 +28,89 @@ final class OutputHandler {
             copyToClipboard(trimmedText)
         }
 
-        // Paste to active app
+        // Paste first, then hand off to the sink: typing should feel instant,
+        // and only the exit waits on the command.
+        let finish = { [weak self] in
+            guard let self = self else { completion(); return }
+            if self.config.playCompletionSound {
+                self.playCompletionSound()
+            }
+            self.runOutputCommand(with: trimmedText, completion: completion)
+        }
+
         if config.pasteToActiveApp {
-            pasteToActiveApp(trimmedText, pressEnter: pressEnter) {
-                if self.config.playCompletionSound {
-                    self.playCompletionSound()
-                }
-                completion()
-            }
+            pasteToActiveApp(trimmedText, pressEnter: pressEnter, completion: finish)
         } else {
-            if config.playCompletionSound {
-                playCompletionSound()
-            }
-            completion()
+            finish()
         }
 
         // Show notification if enabled
         if config.showNotification {
             showNotification(text: trimmedText)
+        }
+    }
+
+    /// Hand the transcript to `output.command` on stdin.
+    ///
+    /// stdin, never argv or env: dictation contains quotes and newlines, and
+    /// anything in argv is visible to every process listing on the machine.
+    /// yapless exits right after this, so it waits — a sink that spawns and
+    /// forgets would be killed mid-flight.
+    private func runOutputCommand(with text: String, completion: @escaping () -> Void) {
+        guard let commandLine = config.command?.trimmingCharacters(in: .whitespaces),
+              !commandLine.isEmpty else {
+            completion()
+            return
+        }
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/bin/sh")
+            process.arguments = ["-c", commandLine]
+
+            var environment = ProcessInfo.processInfo.environment
+            environment["YAPLESS_TRANSCRIPT_LENGTH"] = String(text.count)
+            process.environment = environment
+
+            let stdin = Pipe()
+            let stdout = Pipe()
+            process.standardInput = stdin
+            process.standardOutput = stdout
+            process.standardError = stdout
+
+            do {
+                try process.run()
+            } catch {
+                print("output command failed to start: \(error.localizedDescription)")
+                DispatchQueue.main.async { completion() }
+                return
+            }
+
+            stdin.fileHandleForWriting.write(Data(text.utf8))
+            stdin.fileHandleForWriting.closeFile()
+
+            // Read concurrently: a chatty command that fills the pipe buffer
+            // would otherwise block forever and burn the whole timeout.
+            var output = Data()
+            let reader = DispatchQueue(label: "yapless.output-command.read")
+            reader.async { output = stdout.fileHandleForReading.readDataToEndOfFile() }
+
+            let deadline = Date().addingTimeInterval(self.config.commandTimeout)
+            while process.isRunning && Date() < deadline {
+                Thread.sleep(forTimeInterval: 0.02)
+            }
+
+            if process.isRunning {
+                process.terminate()
+                print("output command timed out after \(self.config.commandTimeout)s — killed")
+            } else if process.terminationStatus != 0 {
+                reader.sync {}
+                let message = String(data: output, encoding: .utf8)?
+                    .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                print("output command exited \(process.terminationStatus): \(message)")
+            }
+
+            DispatchQueue.main.async { completion() }
         }
     }
 

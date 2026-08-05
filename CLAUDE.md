@@ -66,6 +66,14 @@ override the config backend per-run with `--backend auto|groq|deepinfra|firework
 
 `--detach` re-spawns the binary via `posix_spawn` with `POSIX_SPAWN_SETSID` (own session) and exits immediately, so a launcher that times out — Raycast kills a script command at 60s — can't take the recording down with it. child stdio goes to `~/.local/share/yapless/detached.log`, not the launcher's pipes: writing to a closed pipe would SIGPIPE the run mid-transcription (observed). `raycast/*.sh` use it.
 
+## output sink
+
+`output.command` (config) / `--output-command` (CLI) hands the final transcript to a shell command **on stdin** — never argv or env, because dictation contains quotes and newlines and argv is visible in `ps`. `YAPLESS_TRANSCRIPT_LENGTH` is set for cheap sanity checks. It is **additive**: clipboard and paste still happen, so the transcript can land in the editor *and* go somewhere else.
+
+yapless exits right after output, so `OutputHandler.runOutputCommand` **waits** on the child up to `output.commandTimeout` (default 5s) and kills it past that — a sink that spawns and forgets would die mid-flight. Paste runs first so typing stays instant; only the exit waits. `--transcribe` feeds the sink too, otherwise whether it fires would depend on which entry point you used.
+
+Nothing about any particular destination lives in yapless: point it at a script.
+
 ## safety net features
 
 - audio saved immediately to permanent location (survives crashes)

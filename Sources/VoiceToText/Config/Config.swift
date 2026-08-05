@@ -144,6 +144,12 @@ struct OutputConfig: Codable {
     var pasteToActiveApp: Bool = true
     var playCompletionSound: Bool = true
     var showNotification: Bool = false
+    /// Shell command handed the final transcript on stdin. Additive — it runs
+    /// alongside clipboard/paste rather than replacing them. nil = off.
+    var command: String? = nil
+    /// How long to wait for that command before killing it. yapless exits
+    /// straight after, so this is the whole budget the sink gets.
+    var commandTimeout: Double = 5.0
 
     init() {}
 
@@ -153,6 +159,8 @@ struct OutputConfig: Codable {
         pasteToActiveApp = try container.decodeIfPresent(Bool.self, forKey: .pasteToActiveApp) ?? true
         playCompletionSound = try container.decodeIfPresent(Bool.self, forKey: .playCompletionSound) ?? true
         showNotification = try container.decodeIfPresent(Bool.self, forKey: .showNotification) ?? false
+        command = try container.decodeIfPresent(String.self, forKey: .command)
+        commandTimeout = try container.decodeIfPresent(Double.self, forKey: .commandTimeout) ?? 5.0
     }
 }
 
