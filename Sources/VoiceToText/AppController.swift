@@ -229,15 +229,25 @@ final class AppController {
     /// Marks the moment the wait begins. Fires only once the recording has
     /// been accepted, so a refusal doesn't get both this and the error sound.
     private func playProcessingSound() {
-        guard let name = config.output.processingSound?.trimmingCharacters(in: .whitespaces),
-              !name.isEmpty else { return }
+        Self.play(config.output.processingSound, label: "processingSound")
+    }
+
+    private func playErrorSound() {
+        Self.play(config.output.errorSound, label: "errorSound")
+    }
+
+    /// A system sound name, or an absolute path to a file. Empty/nil is
+    /// silence; an unresolvable name warns, because a sound that never plays
+    /// looks exactly like a feature that isn't working.
+    private static func play(_ name: String?, label: String) {
+        guard let name = name?.trimmingCharacters(in: .whitespaces), !name.isEmpty else { return }
 
         let sound = name.hasPrefix("/")
             ? NSSound(contentsOfFile: name, byReference: true)
             : NSSound(named: name)
 
         if sound == nil {
-            print("WARNING: processingSound '\(name)' not found — no sound played")
+            print("WARNING: \(label) '\(name)' not found — no sound played")
         }
         sound?.play()
     }
@@ -269,7 +279,7 @@ final class AppController {
         print("Refused: \(reason)")
         print("Audio kept — recover with: yapless --transcribe \(audioURL.path)")
 
-        NSSound(named: "Funk")?.play()
+        playErrorSound()
         overlayWindow?.setMicLabel("no speech detected — not sent")
         overlayWindow?.showErrorState()
 
@@ -370,6 +380,9 @@ final class AppController {
 
     private func handleTranscriptionError(_ error: Error) {
         print("Transcription error: \(error.localizedDescription)")
+        // Previously silent: a failed transcription looked identical to a
+        // successful one that produced nothing.
+        playErrorSound()
         overlayWindow?.showErrorState()
         if config.animation.style != .dot {
             NSCursor.pop()

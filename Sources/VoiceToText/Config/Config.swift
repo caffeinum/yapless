@@ -163,6 +163,9 @@ struct OutputConfig: Codable {
     /// Deliberately distinct from the completion sound (Tink) and the refusal
     /// sound (Funk): three different events should not share one noise.
     var processingSound: String? = nil
+    /// Played when a recording is refused or transcription fails. Same format
+    /// as processingSound.
+    var errorSound: String? = "Funk"
     var showNotification: Bool = false
     /// Shell command handed the final transcript on stdin. Additive — it runs
     /// alongside clipboard/paste rather than replacing them. nil = off.
@@ -179,6 +182,7 @@ struct OutputConfig: Codable {
         pasteToActiveApp = try container.decodeIfPresent(Bool.self, forKey: .pasteToActiveApp) ?? true
         playCompletionSound = try container.decodeIfPresent(Bool.self, forKey: .playCompletionSound) ?? true
         processingSound = try container.decodeIfPresent(String.self, forKey: .processingSound)
+        errorSound = try container.decodeIfPresent(String.self, forKey: .errorSound) ?? "Funk"
         showNotification = try container.decodeIfPresent(Bool.self, forKey: .showNotification) ?? false
         command = try container.decodeIfPresent(String.self, forKey: .command)
         commandTimeout = try container.decodeIfPresent(Double.self, forKey: .commandTimeout) ?? 5.0
