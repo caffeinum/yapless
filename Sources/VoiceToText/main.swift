@@ -5,7 +5,11 @@ import Foundation
 @main
 struct VoiceToText: ParsableCommand {
     static let configuration = CommandConfiguration(
-        commandName: "voice-to-text",
+        // The binary is `yapless`; the product was renamed and this wasn't.
+        // Errors that name a command nobody installed read as some OTHER
+        // tool's output — which is exactly how "Unknown option '--no-paste' …
+        // see --help" got reported as paw printing its own help.
+        commandName: "yapless",
         abstract: "Lightweight voice-to-text for macOS with nice animations",
         version: "0.1.0"
     )
