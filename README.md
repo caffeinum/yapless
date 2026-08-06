@@ -106,6 +106,32 @@ yapless --record --paste --detach
 
 output goes to `~/.local/share/yapless/detached.log`. the bundled `raycast/*.sh` already use it.
 
+### sounds
+
+one sound per event, so you can tell what happened without looking:
+
+```json
+"output": {
+  "startSound": "Purr",
+  "processingSound": null,
+  "completionSound": "Pop",
+  "refusedSound": "Bottle",
+  "errorSound": "Bottle"
+}
+```
+
+| event | meaning |
+|-------|---------|
+| `startSound` | recording began, mic is live |
+| `processingSound` | you stopped talking, transcription is running |
+| `completionSound` | text is ready and pasting |
+| `refusedSound` | refused — not enough voice in the recording |
+| `errorSound` | transcription failed outright |
+
+each takes a macOS system sound name (`Purr`, `Tink`, `Pop`, `Bottle`, `Morse`, `Funk`, `Submarine`, …) or an absolute path to your own file. `null` or `""` silences that one event.
+
+pick short ones for `processingSound` — anything over ~0.8s is still playing when the text arrives. and note the start sound plays while the mic is already recording: at a normal volume on a directional mic it doesn't reach the recording, but a loud one on a laptop mic could feed itself.
+
 ### refusing silence
 
 whisper invents confident sentences out of silence — "Thank you for watching!" is a real thing it returns for an empty room. yapless refuses to transcribe a recording that has too little voice-level audio in it:
