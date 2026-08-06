@@ -171,6 +171,7 @@ final class AppController {
             self?.processRecording(at: audioURL)
         }
 
+        Self.play(config.output.startSound, label: "startSound")
         showOverlay()
     }
 
@@ -236,6 +237,10 @@ final class AppController {
         Self.play(config.output.errorSound, label: "errorSound")
     }
 
+    private func playRefusedSound() {
+        Self.play(config.output.refusedSound, label: "refusedSound")
+    }
+
     /// A system sound name, or an absolute path to a file. Empty/nil is
     /// silence; an unresolvable name warns, because a sound that never plays
     /// looks exactly like a feature that isn't working.
@@ -279,7 +284,7 @@ final class AppController {
         print("Refused: \(reason)")
         print("Audio kept — recover with: yapless --transcribe \(audioURL.path)")
 
-        playErrorSound()
+        playRefusedSound()
         overlayWindow?.setMicLabel("no speech detected — not sent")
         overlayWindow?.showErrorState()
 

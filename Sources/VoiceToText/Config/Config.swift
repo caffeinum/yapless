@@ -157,14 +157,19 @@ struct OutputConfig: Codable {
     var copyToClipboard: Bool = true
     var pasteToActiveApp: Bool = true
     var playCompletionSound: Bool = true
-    /// Played when transcription starts — i.e. you've stopped talking and the
-    /// wait begins. A system sound name (Pop, Tink, Morse, Purr, Bottle,
-    /// Submarine, …) or an absolute path to an audio file. nil = silent.
-    /// Deliberately distinct from the completion sound (Tink) and the refusal
-    /// sound (Funk): three different events should not share one noise.
+
+    // One sound per event, each a system sound name (Purr, Tink, Bottle, Pop,
+    // Morse, …) or an absolute path to a file. nil/empty silences that one
+    // event. Distinct events get distinct sounds or they teach nothing.
+    /// Recording has begun — the mic is live.
+    var startSound: String? = nil
+    /// You stopped talking; transcription is running.
     var processingSound: String? = nil
-    /// Played when a recording is refused or transcription fails. Same format
-    /// as processingSound.
+    /// Text is ready. Gated by playCompletionSound.
+    var completionSound: String? = "Tink"
+    /// Refused before transcription: not enough voice in the recording.
+    var refusedSound: String? = "Funk"
+    /// Transcription itself failed — every provider exhausted.
     var errorSound: String? = "Funk"
     var showNotification: Bool = false
     /// Shell command handed the final transcript on stdin. Additive — it runs
@@ -181,7 +186,10 @@ struct OutputConfig: Codable {
         copyToClipboard = try container.decodeIfPresent(Bool.self, forKey: .copyToClipboard) ?? true
         pasteToActiveApp = try container.decodeIfPresent(Bool.self, forKey: .pasteToActiveApp) ?? true
         playCompletionSound = try container.decodeIfPresent(Bool.self, forKey: .playCompletionSound) ?? true
+        startSound = try container.decodeIfPresent(String.self, forKey: .startSound)
         processingSound = try container.decodeIfPresent(String.self, forKey: .processingSound)
+        completionSound = try container.decodeIfPresent(String.self, forKey: .completionSound) ?? "Tink"
+        refusedSound = try container.decodeIfPresent(String.self, forKey: .refusedSound) ?? "Funk"
         errorSound = try container.decodeIfPresent(String.self, forKey: .errorSound) ?? "Funk"
         showNotification = try container.decodeIfPresent(Bool.self, forKey: .showNotification) ?? false
         command = try container.decodeIfPresent(String.self, forKey: .command)

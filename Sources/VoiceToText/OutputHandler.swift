@@ -172,7 +172,12 @@ final class OutputHandler {
     }
 
     private func playCompletionSound() {
-        NSSound(named: "Tink")?.play()
+        guard let name = config.completionSound?.trimmingCharacters(in: .whitespaces),
+              !name.isEmpty else { return }
+        let sound = name.hasPrefix("/") ? NSSound(contentsOfFile: name, byReference: true)
+                                        : NSSound(named: name)
+        if sound == nil { print("WARNING: completionSound '\(name)' not found") }
+        sound?.play()
     }
 
     private func showNotification(text: String) {
