@@ -1,0 +1,28 @@
+Sources/VoiceToText/Overlay/OverlayWindow.swift
+  s_af6ac2936cd2ef::t_8b9cbf19a082b1 9,298-358
+  s_af6ac2936cd2ef::t_6b8d467c416579 359
+Sources/VoiceToText/main.swift
+  s_af6ac2936cd2ef::t_d81abaa485b29d 19-24,27,202,264-269
+Sources/VoiceToText/AppController.swift
+  s_af6ac2936cd2ef::t_8b9cbf19a082b1 199-202
+CLAUDE.md
+  s_af6ac2936cd2ef::t_8d7a842588058e 91-94
+README.md
+  s_af6ac2936cd2ef::t_a56c9b290e1a11 137-138
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "0b607df33cba2f792a07e079602a817874e2e4f8",
+  "prompts": {},
+  "sessions": {
+    "s_af6ac2936cd2ef": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f895d0ef-8bdc-4d75-a045-5a3c805b6dad",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Aleksey Bykhun <theisease@gmail.com>"
+    }
+  }
+}
