@@ -9,6 +9,10 @@ final class AudioCapture {
 
     var onAudioLevel: ((Float) -> Void)?
     var onFrequencySpectrum: (([Float]) -> Void)?
+    /// Recording never started. Every one of these paths used to print and
+    /// return, leaving the overlay up over a mic that wasn't running and no
+    /// sound to say so — a failure that looked exactly like listening.
+    var onStartFailure: ((String) -> Void)?
 
     private let fftSize = 512
     private var fftSetup: vDSP_DFT_Setup?
@@ -79,7 +83,10 @@ final class AudioCapture {
         let filename = "\(safeTimestamp).wav"
         recordingURL = StorageConfig.recordingsDirectory.appendingPathComponent(filename)
 
-        guard let recordingURL = recordingURL else { return }
+        guard let recordingURL = recordingURL else {
+            reportStartFailure("could not build a path for the recording")
+            return
+        }
 
         let resolvedDevice = preferredDevice ?? Self.defaultInputDeviceInfo()
         if let info = resolvedDevice {
@@ -104,7 +111,7 @@ final class AudioCapture {
             } else {
                 savedSystemDefaultDeviceID = currentDefault
                 if !Self.setDefaultInputDevice(override.id) {
-                    print("ERROR: could not switch system default input to \(override.name) — aborting")
+                    reportStartFailure("could not switch system default input to \(override.name)")
                     return
                 }
                 let deadline = Date().addingTimeInterval(1.0)
@@ -121,8 +128,8 @@ final class AudioCapture {
                     Thread.sleep(forTimeInterval: 0.05)
                     print("Switched system default input to: \(override.name) (will restore on stop)")
                 } else {
-                    print("ERROR: system default did not switch to \(override.name) within 1s — aborting")
                     restoreSystemDefaultIfNeeded()
+                    reportStartFailure("system default did not switch to \(override.name) within 1s")
                     return
                 }
             }
@@ -137,7 +144,10 @@ final class AudioCapture {
             print("Input format: \(Int(inputFormat.sampleRate))Hz, \(inputFormat.channelCount)ch")
 
             guard inputFormat.channelCount > 0, inputFormat.sampleRate > 0 else {
-                print("ERROR: input format is invalid (\(inputFormat.channelCount)ch @ \(inputFormat.sampleRate)Hz). Mic likely not available — check Settings → Privacy → Microphone, or change default input device.")
+                reportStartFailure(
+                    "input format invalid (\(inputFormat.channelCount)ch @ \(Int(inputFormat.sampleRate))Hz) — "
+                    + "mic likely unavailable; check Settings → Privacy → Microphone"
+                )
                 return
             }
 
@@ -173,8 +183,14 @@ final class AudioCapture {
             print("Recording started to \(recordingURL.path)")
 
         } catch {
-            print("Failed to start recording: \(error)")
+            reportStartFailure("failed to start recording: \(error.localizedDescription)")
         }
+    }
+
+    private func reportStartFailure(_ reason: String) {
+        print("ERROR: \(reason)")
+        let handler = onStartFailure
+        DispatchQueue.main.async { handler?(reason) }
     }
 
     func stopRecording() {

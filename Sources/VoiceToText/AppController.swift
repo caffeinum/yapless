@@ -70,6 +70,9 @@ final class AppController {
         audioCapture.onFrequencySpectrum = { [weak self] bands in
             self?.overlayWindow?.updateSpectrum(bands)
         }
+        audioCapture.onStartFailure = { [weak self] reason in
+            self?.failRecording(reason: reason)
+        }
     }
 
     func startRecording() {
@@ -255,6 +258,28 @@ final class AppController {
             print("WARNING: \(label) '\(name)' not found — no sound played")
         }
         sound?.play()
+    }
+
+    /// The mic never came up. Same treatment as a refusal — audible, visible,
+    /// and it exits rather than sitting on an overlay that means nothing.
+    private func failRecording(reason: String) {
+        guard isRecording else { return }
+        isRecording = false
+
+        playErrorSound()
+        overlayWindow?.setMicLabel("recording failed — \(reason)")
+        overlayWindow?.showErrorState()
+
+        if config.animation.style != .dot {
+            NSCursor.pop()
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
+            self?.hideOverlay()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                NSApplication.shared.terminate(nil)
+            }
+        }
     }
 
     /// Why this recording shouldn't be transcribed, or nil to proceed.
