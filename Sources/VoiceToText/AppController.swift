@@ -196,6 +196,10 @@ final class AppController {
         }
         overlayWindow?.showRecordingState()
 
+        if let sink = config.output.command, !sink.isEmpty {
+            overlayWindow?.setSinkLabel(sink)
+        }
+
         let info = audioCapture.preferredDevice ?? AudioCapture.defaultInputDeviceInfo()
         if let info = info {
             overlayWindow?.setMicLabel("mic: \(info.name)")

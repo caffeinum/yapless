@@ -6,6 +6,7 @@ final class OverlayWindow: NSWindow {
     private let animationConfig: AnimationConfig
     private var animationView: AnimationView?
     private var micLabel: NSTextField?
+    private var sinkLabel: NSTextField?
     private var keyMonitor: Any?
     private var clickMonitor: Any?
     private var eventTap: CFMachPort?
@@ -292,6 +293,68 @@ final class OverlayWindow: NSWindow {
             self.micLabel = label
             self.layoutMicLabel()
         }
+    }
+
+    /// Where this dictation is going, shown while recording.
+    ///
+    /// With a sink configured the transcript leaves the machine, and the only
+    /// thing distinguishing that from ordinary dictation is which hotkey was
+    /// pressed — which is not something anyone remembers mid-sentence.
+    func setSinkLabel(_ command: String) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self, let contentView = self.contentView else { return }
+
+            let text = "→ \(Self.summarise(command))"
+            if let existing = self.sinkLabel {
+                existing.stringValue = text
+                existing.sizeToFit()
+                self.layoutSinkLabel()
+                return
+            }
+
+            let label = NSTextField(labelWithString: text)
+            label.font = NSFont.monospacedSystemFont(ofSize: 10, weight: .medium)
+            label.textColor = NSColor.white.withAlphaComponent(0.9)
+            label.backgroundColor = NSColor.systemPurple.withAlphaComponent(0.55)
+            label.drawsBackground = true
+            label.isBezeled = false
+            label.isEditable = false
+            label.alignment = .center
+            label.wantsLayer = true
+            label.layer?.cornerRadius = 6
+            label.layer?.masksToBounds = true
+            label.sizeToFit()
+
+            contentView.addSubview(label, positioned: .above, relativeTo: nil)
+            self.sinkLabel = label
+            self.layoutSinkLabel()
+        }
+    }
+
+    /// Show enough of the command to recognise the destination, not the whole
+    /// shell line — `/Users/aleks/.local/bin/paw dm voice -` reads as `paw dm voice`.
+    private static func summarise(_ command: String) -> String {
+        let parts = command.split(separator: " ").map(String.init)
+        guard let executable = parts.first else { return command }
+        let name = (executable as NSString).lastPathComponent
+        let arguments = parts.dropFirst().filter { $0 != "-" }
+        return ([name] + arguments).joined(separator: " ")
+    }
+
+    private func layoutSinkLabel() {
+        guard let label = sinkLabel, let contentView = contentView else { return }
+        let width = label.fittingSize.width + 16
+        let height: CGFloat = 20
+        let bounds = contentView.bounds
+        // Directly under the mic label, which owns the first row.
+        let topInset: CGFloat = (animationConfig.style == .glow ? 60 : 8) + 24
+        label.frame = NSRect(
+            x: (bounds.width - width) / 2,
+            y: bounds.height - height - topInset,
+            width: width,
+            height: height
+        )
+        label.autoresizingMask = [.minXMargin, .maxXMargin, .minYMargin]
     }
 
     private func layoutMicLabel() {

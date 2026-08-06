@@ -16,11 +16,15 @@ struct VoiceToText: ParsableCommand {
     @Flag(name: .shortAndLong, inversion: .prefixedNo, help: "Show animation overlay")
     var animate = true
 
-    @Flag(name: .shortAndLong, help: "Paste result to active app")
-    var paste = false
+    // Optional, not defaulted: nil means "not specified", so the config file
+    // stays authoritative unless a flag actually appears on the command line.
+    // These were previously declared but never applied to the record path at
+    // all — `--no-paste` didn't even parse, and `--paste` did nothing.
+    @Flag(name: .shortAndLong, inversion: .prefixedNo, help: "Paste result to active app")
+    var paste: Bool?
 
     @Flag(name: .shortAndLong, inversion: .prefixedNo, help: "Copy result to clipboard")
-    var clipboard = true
+    var clipboard: Bool?
 
     @Option(name: .shortAndLong, help: "Whisper model to use (tiny, base, small, medium, large)")
     var model: String = "base"
@@ -195,7 +199,7 @@ struct VoiceToText: ParsableCommand {
             switch result! {
             case .success(let text):
                 print(text)
-                if clipboard {
+                if clipboard ?? appConfig.output.copyToClipboard {
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString(text, forType: .string)
                 }
@@ -256,6 +260,12 @@ struct VoiceToText: ParsableCommand {
         }
         if let outputCommand = outputCommand {
             finalConfig.output.command = outputCommand
+        }
+        if let paste = paste {
+            finalConfig.output.pasteToActiveApp = paste
+        }
+        if let clipboard = clipboard {
+            finalConfig.output.copyToClipboard = clipboard
         }
 
         // Initialize the app controller

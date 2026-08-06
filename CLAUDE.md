@@ -88,6 +88,10 @@ yapless exits right after output, so `OutputHandler.runOutputCommand` **waits** 
 
 Nothing about any particular destination lives in yapless: point it at a script.
 
+When a sink is set, `OverlayWindow.setSinkLabel` shows the destination while recording (`→ paw dm voice`, executable basename + args, `-` stripped). Which hotkey you pressed is not something anyone recalls mid-sentence, and the difference between "typed here" and "sent to an agent" matters.
+
+`--paste`/`--no-paste` and `--clipboard`/`--no-clipboard` are `Bool?`: nil means unspecified, so config stays authoritative unless a flag is actually present. They were previously declared but **never applied to the record path**, and `paste` had no `inversion`, so `--no-paste` failed to parse at all — which silently broke any launcher script using it.
+
 ## safety net features
 
 - audio saved immediately to permanent location (survives crashes)

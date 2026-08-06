@@ -134,6 +134,8 @@ these numbers were measured over 527 real recordings; loudness alone doesn't wor
 
 or per-run: `yapless --record --output-command /absolute/path/to/your-script`
 
+while recording, the overlay shows where the transcript is going (`→ paw dm voice`), so a dictation bound for somewhere other than your keyboard says so at the time rather than after.
+
 the transcript arrives on stdin (never as an argument — dictation contains quotes, and arguments show up in `ps`), with `YAPLESS_TRANSCRIPT_LENGTH` set. yapless waits up to `commandTimeout` seconds for the command, then kills it, so a slow sink can't hang your dictation and a forked one can't be killed mid-flight. use an absolute path: under `--detach` there's no login shell PATH.
 
 ### picking a microphone
