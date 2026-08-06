@@ -113,6 +113,18 @@ animation `AnimationState` enum: `.recording` / `.processing` / `.complete` / `.
 - event tap requires accessibility permission
 - **mic permission**: `AVCaptureDevice.requestAccess` is called from `AppController.startRecording`. CLI binaries get silent denial unless granted in System Settings → Privacy & Security → Microphone. without it, AVAudioEngine returns zero buffers with no error.
 - **AVAudioEngine + device binding**: `AVAudioEngine.inputNode` is bound to the **system default input** at engine init and there is no supported way to repoint it afterwards without disturbing the tap. so `--input` works by swapping `kAudioHardwarePropertyDefaultInputDevice` *before* creating the engine (`AudioCapture.swift:69-103`), then restoring it in `stopRecording` (`restoreSystemDefaultIfNeeded`). consequences: the swap is global (every app sees it) and **not crash-safe** — there's no atexit/signal handler, so a `kill -9` mid-recording leaves the user's default input changed. we do NOT use `kAudioOutputUnitProperty_CurrentDevice` anywhere despite what this file used to claim.
+## cold start
+
+~330ms from exec to first audio buffer (was ~545ms). Measured, not estimated — timestamp each log line relative to spawn.
+
+Where it goes now: ~47ms process + framework + config, ~88ms first touch of AVFoundation (`AudioCapture.init`), ~87ms `AVAudioEngine()` + `inputNode.outputFormat`, ~78ms file + tap + `engine.start()`. The overlay (~100ms of SwiftUI) is fully hidden behind the audio work.
+
+What was removed: `WhisperEngine` is `lazy` (credential + local-binary discovery happens after the recording, not before it); the resolved input device is cached in `~/.local/share/yapless/input-device-cache.json` and validated with ONE property read instead of ~85; the fixed 250ms post-swap sleep is 50ms with a 2ms poll.
+
+`startRecordingInBackground` runs CoreAudio setup off the main thread while the overlay draws. A `controlQueue` serialises start/stop, and the completion hops back to main — everything downstream touches UI.
+
+**Sub-100ms is not reachable this way.** ~165ms of that is AVAudioEngine construction and start, i.e. framework code, paid per process. Getting under 100ms means a resident warm process holding an initialised engine — a daemon, which is what the README promises yapless isn't.
+
 ## input device selection
 
 `AudioCapture.resolveInputDevice(config:)` decides which mic to open, reading properties only — nothing is opened until the engine starts. precedence:

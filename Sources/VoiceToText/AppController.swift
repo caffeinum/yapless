@@ -4,7 +4,11 @@ import AVFoundation
 final class AppController {
     private let config: Config
     private let audioCapture: AudioCapture
-    private let whisperEngine: WhisperEngine
+    /// Built on first use, which is after the recording ends. Resolving
+    /// credentials and hunting for local whisper binaries costs ~40ms and
+    /// nothing on the record path needs it — the microphone should be live
+    /// before we care how the audio will eventually be transcribed.
+    private lazy var whisperEngine = WhisperEngine(config: config.whisper)
     private let outputHandler: OutputHandler
     private var overlayWindow: OverlayWindow?
     private var previousApp: NSRunningApplication?
@@ -17,7 +21,6 @@ final class AppController {
     init(config: Config, inputDeviceQuery: String? = nil) {
         self.config = config
         self.audioCapture = AudioCapture()
-        self.whisperEngine = WhisperEngine(config: config.whisper)
         self.outputHandler = OutputHandler(config: config.output)
 
         // --input wins outright: an explicit request is honoured even if it is
@@ -161,11 +164,14 @@ final class AppController {
         let safeTimestamp = timestamp.replacingOccurrences(of: ":", with: "-")
         recordingTimestamp = safeTimestamp
 
-        showOverlay()
-
-        audioCapture.startRecording { [weak self] audioURL in
+        // Mic first, UI second: the engine takes ~190ms of CoreAudio setup and
+        // the overlay ~100ms of SwiftUI, and neither needs the other. Starting
+        // the capture first means words spoken at the very beginning land.
+        audioCapture.startRecordingInBackground { [weak self] audioURL in
             self?.processRecording(at: audioURL)
         }
+
+        showOverlay()
     }
 
     func stopRecording(pressEnter: Bool = false) {

@@ -33,6 +33,9 @@ final class AudioCapture {
     private var bufferMaxSample: Float = 0
     private var bufferRMSSum: Float = 0
     private var lastStatsLog: Date = .distantPast
+    /// Serialises start/stop so a stop that arrives mid-start still happens
+    /// after it, now that start runs off the main thread.
+    private let controlQueue = DispatchQueue(label: "yapless.audio.control")
 
     init() {
         self.recordingFormat = AVAudioFormat(
@@ -50,6 +53,17 @@ final class AudioCapture {
             DispatchQueue.main.async {
                 completion(granted)
             }
+        }
+    }
+
+    /// Bring the mic up without waiting for the UI.
+    ///
+    /// CoreAudio setup is ~190ms of HAL work that has nothing to do with
+    /// drawing an overlay, so the two run concurrently and the microphone is
+    /// live sooner. Ordering against stop is the controlQueue's job.
+    func startRecordingInBackground(completion: @escaping (URL) -> Void) {
+        controlQueue.async { [weak self] in
+            self?.startRecording(completion: completion)
         }
     }
 
@@ -96,12 +110,15 @@ final class AudioCapture {
                 let deadline = Date().addingTimeInterval(1.0)
                 var actualID = Self.currentDefaultInputDeviceID()
                 while actualID != override.id && Date() < deadline {
-                    Thread.sleep(forTimeInterval: 0.02)
+                    Thread.sleep(forTimeInterval: 0.002)
                     actualID = Self.currentDefaultInputDeviceID()
                 }
                 if actualID == override.id {
-                    // Give the device a moment to stabilize after the switch.
-                    Thread.sleep(forTimeInterval: 0.25)
+                    // Let the device settle before the engine reads its format;
+                    // without this we saw a 24kHz device report 48kHz and then
+                    // deliver zero buffers. 0.25s was a guess, 0.05s is enough
+                    // in practice — but it is a race, so it stays non-zero.
+                    Thread.sleep(forTimeInterval: 0.05)
                     print("Switched system default input to: \(override.name) (will restore on stop)")
                 } else {
                     print("ERROR: system default did not switch to \(override.name) within 1s — aborting")
@@ -161,6 +178,12 @@ final class AudioCapture {
     }
 
     func stopRecording() {
+        // Blocks only if a start is still in flight — correct ordering beats a
+        // stop that races an engine which isn't running yet.
+        controlQueue.sync { self.stopRecordingLocked() }
+    }
+
+    private func stopRecordingLocked() {
         guard let audioEngine = audioEngine else {
             restoreSystemDefaultIfNeeded()
             return
@@ -176,7 +199,9 @@ final class AudioCapture {
         print("Recording stopped")
 
         if let recordingURL = recordingURL {
-            completionHandler?(recordingURL)
+            // Everything downstream touches UI, so hand back on main.
+            let handler = completionHandler
+            DispatchQueue.main.async { handler?(recordingURL) }
         }
     }
 
@@ -468,6 +493,67 @@ final class AudioCapture {
         }
     }
 
+    /// Last resolution, remembered so the next launch doesn't re-derive it.
+    ///
+    /// Enumerating every device costs ~85 CoreAudio property reads (~190ms of
+    /// IPC to coreaudiod) to answer a question whose answer almost never
+    /// changes. The cache is validated with ONE read — does that device ID
+    /// still carry that UID — and any mismatch falls back to the full walk.
+    private struct DeviceCache: Codable {
+        let query: String
+        let id: UInt32
+        let uid: String
+        let name: String
+        let sampleRate: Double
+        let channels: UInt32
+        let transportType: UInt32
+
+        var info: InputDeviceInfo {
+            InputDeviceInfo(id: id, name: name, uid: uid, sampleRate: sampleRate,
+                            channels: channels, transportType: transportType)
+        }
+    }
+
+    private static var deviceCacheURL: URL {
+        StorageConfig.dataDirectory.appendingPathComponent("input-device-cache.json")
+    }
+
+    /// Everything about the config that could change the answer. A config edit
+    /// changes this string, which invalidates the cache without a version bump.
+    private static func cacheKey(_ config: AudioConfig) -> String {
+        [
+            config.inputDevice ?? "",
+            config.inputPriority.joined(separator: "|"),
+            config.excludeInputs.joined(separator: "|"),
+            String(config.avoidBluetoothInput)
+        ].joined(separator: "\u{1}")
+    }
+
+    private static func cachedDevice(for config: AudioConfig) -> InputDeviceInfo? {
+        guard let data = try? Data(contentsOf: deviceCacheURL),
+              let cache = try? JSONDecoder().decode(DeviceCache.self, from: data),
+              cache.query == cacheKey(config) else { return nil }
+
+        // One property read: device IDs are reused across reboots and
+        // reconnects, so the UID is what actually identifies the hardware.
+        guard stringProperty(cache.id, kAudioDevicePropertyDeviceUID) == cache.uid else {
+            return nil
+        }
+        return cache.info
+    }
+
+    private static func remember(_ device: InputDeviceInfo, for config: AudioConfig) {
+        let cache = DeviceCache(
+            query: cacheKey(config), id: device.id, uid: device.uid, name: device.name,
+            sampleRate: device.sampleRate, channels: device.channels,
+            transportType: device.transportType
+        )
+        try? FileManager.default.createDirectory(
+            at: StorageConfig.dataDirectory, withIntermediateDirectories: true
+        )
+        try? JSONEncoder().encode(cache).write(to: deviceCacheURL)
+    }
+
     /// How the input device was chosen — the caller decides what to do when
     /// the configured devices simply are not present.
     enum InputSelection {
@@ -482,6 +568,10 @@ final class AudioCapture {
     /// system default turns out to be excluded, yapless says so rather than
     /// quietly substituting a device the user never named.
     static func resolveInputDevice(config: AudioConfig) -> InputSelection {
+        if let cached = cachedDevice(for: config) {
+            return .chosen(cached, reason: "cached")
+        }
+
         let devices = allInputDevices()
 
         if !config.inputPriority.isEmpty {
@@ -494,6 +584,7 @@ final class AudioCapture {
                     return .chosen(fallback, reason: "inputPriority → system default")
                 }
                 if let match = match(query, in: devices) {
+                    remember(match, for: config)
                     return .chosen(match, reason: "inputPriority '\(query)'")
                 }
             }
@@ -519,6 +610,7 @@ final class AudioCapture {
             guard let match = match(requested, in: devices) else {
                 return .unavailable(reason: "config inputDevice '\(requested)' is not connected")
             }
+            remember(match, for: config)
             return .chosen(match, reason: "config inputDevice '\(requested)'")
         }
 
