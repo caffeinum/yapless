@@ -157,6 +157,12 @@ struct OutputConfig: Codable {
     var copyToClipboard: Bool = true
     var pasteToActiveApp: Bool = true
     var playCompletionSound: Bool = true
+    /// Played when transcription starts — i.e. you've stopped talking and the
+    /// wait begins. A system sound name (Pop, Tink, Morse, Purr, Bottle,
+    /// Submarine, …) or an absolute path to an audio file. nil = silent.
+    /// Deliberately distinct from the completion sound (Tink) and the refusal
+    /// sound (Funk): three different events should not share one noise.
+    var processingSound: String? = nil
     var showNotification: Bool = false
     /// Shell command handed the final transcript on stdin. Additive — it runs
     /// alongside clipboard/paste rather than replacing them. nil = off.
@@ -172,6 +178,7 @@ struct OutputConfig: Codable {
         copyToClipboard = try container.decodeIfPresent(Bool.self, forKey: .copyToClipboard) ?? true
         pasteToActiveApp = try container.decodeIfPresent(Bool.self, forKey: .pasteToActiveApp) ?? true
         playCompletionSound = try container.decodeIfPresent(Bool.self, forKey: .playCompletionSound) ?? true
+        processingSound = try container.decodeIfPresent(String.self, forKey: .processingSound)
         showNotification = try container.decodeIfPresent(Bool.self, forKey: .showNotification) ?? false
         command = try container.decodeIfPresent(String.self, forKey: .command)
         commandTimeout = try container.decodeIfPresent(Double.self, forKey: .commandTimeout) ?? 5.0

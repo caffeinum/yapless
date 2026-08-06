@@ -226,6 +226,22 @@ final class AppController {
         }
     }
 
+    /// Marks the moment the wait begins. Fires only once the recording has
+    /// been accepted, so a refusal doesn't get both this and the error sound.
+    private func playProcessingSound() {
+        guard let name = config.output.processingSound?.trimmingCharacters(in: .whitespaces),
+              !name.isEmpty else { return }
+
+        let sound = name.hasPrefix("/")
+            ? NSSound(contentsOfFile: name, byReference: true)
+            : NSSound(named: name)
+
+        if sound == nil {
+            print("WARNING: processingSound '\(name)' not found — no sound played")
+        }
+        sound?.play()
+    }
+
     /// Why this recording shouldn't be transcribed, or nil to proceed.
     ///
     /// Whisper invents confident sentences from silence ("Thank you for
@@ -292,6 +308,7 @@ final class AppController {
         }
 
         overlayWindow?.showProcessingState()
+        playProcessingSound()
 
         whisperEngine.transcribe(audioURL: audioURL) { [weak self] result in
             DispatchQueue.main.async {
