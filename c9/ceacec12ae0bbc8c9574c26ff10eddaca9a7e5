@@ -1,0 +1,23 @@
+Sources/VoiceToText/AppController.swift
+  s_af6ac2936cd2ef::t_4a83db3f4ea807 174,240-243,287
+Sources/VoiceToText/Config/Config.swift
+  s_af6ac2936cd2ef::t_4a83db3f4ea807 160-166,168-172,189,191-192
+Sources/VoiceToText/OutputHandler.swift
+  s_af6ac2936cd2ef::t_4a83db3f4ea807 175-180
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "c9ceacec12ae0bbc8c9574c26ff10eddaca9a7e5",
+  "prompts": {},
+  "sessions": {
+    "s_af6ac2936cd2ef": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f895d0ef-8bdc-4d75-a045-5a3c805b6dad",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Aleksey Bykhun <theisease@gmail.com>"
+    }
+  }
+}
