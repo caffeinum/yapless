@@ -1,0 +1,23 @@
+Sources/VoiceToText/AppController.swift
+  s_af6ac2936cd2ef::t_f70549ecfd8c0f 73-75,263-282
+  s_af6ac2936cd2ef::t_fb039e5679e89c 283-284
+Sources/VoiceToText/Audio/AudioCapture.swift
+  s_af6ac2936cd2ef::t_f70549ecfd8c0f 12-15,86-89,114,132,147-150,186,190-193
+  s_af6ac2936cd2ef::t_2648087744f3d3 194-195
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "8f4147cf41b6d5855ecaaee85dffabe4086ec82d",
+  "prompts": {},
+  "sessions": {
+    "s_af6ac2936cd2ef": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f895d0ef-8bdc-4d75-a045-5a3c805b6dad",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Aleksey Bykhun <theisease@gmail.com>"
+    }
+  }
+}
