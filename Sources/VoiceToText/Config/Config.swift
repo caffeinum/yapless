@@ -165,8 +165,12 @@ struct OutputConfig: Codable {
     var startSound: String? = nil
     /// You stopped talking; transcription is running.
     var processingSound: String? = nil
-    /// Text is ready. Gated by playCompletionSound.
+    /// Text is ready and the paste went out. Gated by playCompletionSound.
     var completionSound: String? = "Tink"
+    /// Transcription worked but the paste could not be sent — the text is on
+    /// the clipboard and needs ⌘V by hand. A different sound because it is a
+    /// different outcome: the words are safe, the delivery isn't.
+    var pasteFailedSound: String? = "Funk"
     /// Refused before transcription: not enough voice in the recording.
     var refusedSound: String? = "Funk"
     /// Transcription itself failed — every provider exhausted.
@@ -189,6 +193,7 @@ struct OutputConfig: Codable {
         startSound = try container.decodeIfPresent(String.self, forKey: .startSound)
         processingSound = try container.decodeIfPresent(String.self, forKey: .processingSound)
         completionSound = try container.decodeIfPresent(String.self, forKey: .completionSound) ?? "Tink"
+        pasteFailedSound = try container.decodeIfPresent(String.self, forKey: .pasteFailedSound) ?? "Funk"
         refusedSound = try container.decodeIfPresent(String.self, forKey: .refusedSound) ?? "Funk"
         errorSound = try container.decodeIfPresent(String.self, forKey: .errorSound) ?? "Funk"
         showNotification = try container.decodeIfPresent(Bool.self, forKey: .showNotification) ?? false

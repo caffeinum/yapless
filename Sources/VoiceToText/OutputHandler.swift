@@ -1,4 +1,5 @@
 import AppKit
+import ApplicationServices
 import Carbon.HIToolbox
 import UserNotifications
 
@@ -30,10 +31,11 @@ final class OutputHandler {
 
         // Paste first, then hand off to the sink: typing should feel instant,
         // and only the exit waits on the command.
-        let finish = { [weak self] in
+        let finish = { [weak self] (pasteSucceeded: Bool) in
             guard let self = self else { completion(); return }
             if self.config.playCompletionSound {
-                self.playCompletionSound()
+                self.play(pasteSucceeded ? self.config.completionSound : self.config.pasteFailedSound,
+                          label: pasteSucceeded ? "completionSound" : "pasteFailedSound")
             }
             self.runOutputCommand(with: trimmedText, completion: completion)
         }
@@ -41,7 +43,9 @@ final class OutputHandler {
         if config.pasteToActiveApp {
             pasteToActiveApp(trimmedText, pressEnter: pressEnter, completion: finish)
         } else {
-            finish()
+            // Nothing was attempted, so nothing failed — clipboard-only runs
+            // get the ordinary completion sound.
+            finish(true)
         }
 
         // Show notification if enabled
@@ -121,38 +125,54 @@ final class OutputHandler {
         print("Copied to clipboard: \(text.prefix(50))...")
     }
 
-    private func pasteToActiveApp(_ text: String, pressEnter: Bool, completion: @escaping () -> Void) {
+    private func pasteToActiveApp(_ text: String, pressEnter: Bool, completion: @escaping (Bool) -> Void) {
         // Small delay to ensure clipboard is ready
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-            self.simulatePaste()
+            let sent = self.simulatePaste()
+
+            guard sent else {
+                print("Paste not sent — text is on the clipboard, press ⌘V")
+                completion(false)
+                return
+            }
 
             if pressEnter {
                 // Longer delay after paste to ensure Cmd key is released
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
                     self.simulateEnter()
-                    completion()
+                    completion(true)
                 }
             } else {
-                completion()
+                completion(true)
             }
         }
     }
 
-    private func simulatePaste() {
-        // Simulate Cmd+V using CGEvent
-        let source = CGEventSource(stateID: .hidSystemState)
+    /// Returns whether the keystroke could be SENT — not whether the target
+    /// app accepted it. Nothing reports that back, so this detects the failure
+    /// that actually happens: without Accessibility permission, posting a
+    /// CGEvent silently does nothing and the text just sits on the clipboard.
+    @discardableResult
+    private func simulatePaste() -> Bool {
+        guard AXIsProcessTrusted() else {
+            print("Paste blocked: Accessibility permission not granted for this binary")
+            return false
+        }
 
-        // Key down for Cmd+V
-        let keyDown = CGEvent(keyboardEventSource: source, virtualKey: CGKeyCode(kVK_ANSI_V), keyDown: true)
-        keyDown?.flags = .maskCommand
-        keyDown?.post(tap: .cghidEventTap)
+        guard let source = CGEventSource(stateID: .hidSystemState),
+              let keyDown = CGEvent(keyboardEventSource: source, virtualKey: CGKeyCode(kVK_ANSI_V), keyDown: true),
+              let keyUp = CGEvent(keyboardEventSource: source, virtualKey: CGKeyCode(kVK_ANSI_V), keyDown: false) else {
+            print("Paste blocked: could not create the key event")
+            return false
+        }
 
-        // Key up for Cmd+V
-        let keyUp = CGEvent(keyboardEventSource: source, virtualKey: CGKeyCode(kVK_ANSI_V), keyDown: false)
-        keyUp?.flags = .maskCommand
-        keyUp?.post(tap: .cghidEventTap)
+        keyDown.flags = .maskCommand
+        keyDown.post(tap: .cghidEventTap)
+        keyUp.flags = .maskCommand
+        keyUp.post(tap: .cghidEventTap)
 
         print("Simulated paste")
+        return true
     }
 
     private func simulateEnter() {
@@ -171,12 +191,11 @@ final class OutputHandler {
         print("Simulated enter")
     }
 
-    private func playCompletionSound() {
-        guard let name = config.completionSound?.trimmingCharacters(in: .whitespaces),
-              !name.isEmpty else { return }
+    private func play(_ name: String?, label: String) {
+        guard let name = name?.trimmingCharacters(in: .whitespaces), !name.isEmpty else { return }
         let sound = name.hasPrefix("/") ? NSSound(contentsOfFile: name, byReference: true)
                                         : NSSound(named: name)
-        if sound == nil { print("WARNING: completionSound '\(name)' not found") }
+        if sound == nil { print("WARNING: \(label) '\(name)' not found") }
         sound?.play()
     }
 
