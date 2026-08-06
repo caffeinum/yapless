@@ -1,0 +1,19 @@
+Sources/VoiceToText/main.swift
+  s_af6ac2936cd2ef::t_ec512e7496fc9b 8-12
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.21",
+  "base_commit_sha": "f75cb902a1ee144b4bae0a928c50f1924f5161df",
+  "prompts": {},
+  "sessions": {
+    "s_af6ac2936cd2ef": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f895d0ef-8bdc-4d75-a045-5a3c805b6dad",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Aleksey Bykhun <theisease@gmail.com>"
+    }
+  }
+}
