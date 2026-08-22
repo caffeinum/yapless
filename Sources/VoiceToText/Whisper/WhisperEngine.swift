@@ -175,6 +175,66 @@ final class WhisperEngine {
             return
         }
 
+        let cloud = providers.filter { isCloudVariant($0) }
+        let local = providers.filter { !isCloudVariant($0) }
+
+        // Race only when there are actually two lanes to race.
+        if config.raceLocal && !cloud.isEmpty && !local.isEmpty {
+            race(audioURL: audioURL, cloud: cloud, local: local,
+                 maxRetries: maxRetries, completion: completion)
+            return
+        }
+
+        walk(providers, audioURL: audioURL, maxRetries: maxRetries, completion: completion)
+    }
+
+    /// Cloud and local at the same time; first success wins, and the loser is
+    /// left to finish into the void rather than being killed mid-write.
+    ///
+    /// Local whisper is ~10x slower than groq, so on a healthy network the
+    /// cloud always wins and this costs only CPU. It earns its keep when the
+    /// network is slow or gone — the case where waiting is worst.
+    private func race(audioURL: URL, cloud: [WhisperVariant], local: [WhisperVariant],
+                      maxRetries: Int, completion: @escaping (Result<String, Error>) -> Void) {
+        let gate = DispatchQueue(label: "yapless.transcribe.race")
+        var settled = false
+        var firstError: Error?
+        var finished = 0
+
+        func report(_ lane: String, _ result: Result<String, Error>) {
+            gate.async {
+                guard !settled else {
+                    if case .success = result {
+                        fputs("[race] \(lane) finished too, discarded\n", stderr)
+                    }
+                    return
+                }
+                finished += 1
+
+                switch result {
+                case .success(let text):
+                    settled = true
+                    fputs("[race] \(lane) won\n", stderr)
+                    completion(.success(text))
+                case .failure(let error):
+                    fputs("[race] \(lane) lost: \(error.localizedDescription)\n", stderr)
+                    if firstError == nil { firstError = error }
+                    // Only give up once BOTH lanes are out.
+                    if finished == 2 {
+                        settled = true
+                        completion(.failure(firstError ?? error))
+                    }
+                }
+            }
+        }
+
+        fputs("[race] cloud \(cloud) vs local \(local)\n", stderr)
+        walk(cloud, audioURL: audioURL, maxRetries: maxRetries) { report("cloud", $0) }
+        walk(local, audioURL: audioURL, maxRetries: 1) { report("local", $0) }
+    }
+
+    private func walk(_ chain: [WhisperVariant], audioURL: URL, maxRetries: Int,
+                      completion: @escaping (Result<String, Error>) -> Void) {
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self = self else { return }
 
@@ -184,7 +244,7 @@ final class WhisperEngine {
             // Walk the fallback chain. Groq gets retried (transient network/API
             // errors); local backends are deterministic, so we try them once
             // before moving on.
-            for variant in self.providers {
+            for variant in chain {
                 let isCloud = self.isCloudVariant(variant)
                 let attempts = isCloud ? maxRetries : 1
 
@@ -224,7 +284,7 @@ final class WhisperEngine {
                     }
                 }
 
-                if self.providers.count > 1 {
+                if chain.count > 1 {
                     fputs("[\(variant)] exhausted, falling back to next provider...\n", stderr)
                 }
             }

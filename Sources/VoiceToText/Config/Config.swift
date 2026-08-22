@@ -126,6 +126,11 @@ struct WhisperConfig: Codable {
     var vocabulary: [String] = []
     /// Freeform initial prompt, prepended to `vocabulary`.
     var prompt: String? = nil
+    /// Run local whisper alongside the cloud chain and take whichever finishes
+    /// first. Local is far slower (~25s for a 20s clip against groq's ~2s), so
+    /// it only ever wins when the network is slow or down — which is exactly
+    /// when waiting hurts. Costs CPU on every dictation, hence opt-in.
+    var raceLocal: Bool = false
     var groqApiKey: String? = nil  // Groq API key, or use GROQ_API_KEY env var
     var deepInfraApiKey: String? = nil  // DeepInfra key, or use DEEPINFRA_API_KEY env var
     var fireworksApiKey: String? = nil  // Fireworks key, or use FIREWORKS_API_KEY env var
@@ -145,6 +150,7 @@ struct WhisperConfig: Codable {
         modelPath = try container.decodeIfPresent(String.self, forKey: .modelPath)
         vocabulary = try container.decodeIfPresent([String].self, forKey: .vocabulary) ?? []
         prompt = try container.decodeIfPresent(String.self, forKey: .prompt)
+        raceLocal = try container.decodeIfPresent(Bool.self, forKey: .raceLocal) ?? false
         groqApiKey = try container.decodeIfPresent(String.self, forKey: .groqApiKey)
         deepInfraApiKey = try container.decodeIfPresent(String.self, forKey: .deepInfraApiKey)
         fireworksApiKey = try container.decodeIfPresent(String.self, forKey: .fireworksApiKey)

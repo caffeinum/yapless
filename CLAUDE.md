@@ -58,6 +58,14 @@ groq/deepinfra/fireworks share `transcribeOpenAICompatible(endpoint:apiKey:model
 
 override the config backend per-run with `--backend auto|groq|deepinfra|fireworks|fal|replicate|local`.
 
+## racing local against cloud
+
+`whisper.raceLocal` (default **false**) runs the cloud chain and local whisper **at the same time** and takes whichever finishes first, instead of only reaching local after the cloud chain is exhausted.
+
+`WhisperEngine.race` splits `providers` into cloud and local lanes and calls `walk` on each. A serial `gate` queue makes the first success win exactly once; the losing lane keeps running and its result is discarded (killing it mid-write is worse than wasting the CPU). Failure is only reported once BOTH lanes are out, so a dead cloud can't mask a working local.
+
+Local is ~10x slower than groq, so on a healthy network the cloud always wins and this costs only CPU — it earns its keep when the network is slow or gone, which is exactly when sequential fallback hurts most. Opt-in for that reason.
+
 ## vocabulary / initial prompt
 
 `whisper.vocabulary` (array) and `whisper.prompt` (string) become whisper's **initial prompt** — the sentence the decoder conditions on, which biases spelling toward those words. built in `WhisperEngine.initialPrompt`, sent as the `prompt` multipart field to groq/deepinfra/fireworks, `--initial_prompt` to openai-whisper, `--prompt` to whisper-cpp. **not** supported by replicate (incredibly-fast-whisper takes no prompt), fal, or whisperkit — those silently ignore it.
