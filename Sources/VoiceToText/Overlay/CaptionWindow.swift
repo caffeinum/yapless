@@ -11,11 +11,31 @@ final class CaptionWindow {
     private var window: NSWindow?
     private var label: NSTextField?
 
-    func show(text: String) {
+    /// `stable` never rewrites; `tentative` is drawn dimmed and may change
+    /// until the next pass confirms it.
+    func show(stable: String, tentative: String) {
         DispatchQueue.main.async { [weak self] in
             guard let self = self else { return }
             if self.window == nil { self.build() }
-            self.label?.stringValue = text
+            guard let label = self.label else { return }
+
+            let paragraph = NSMutableParagraphStyle()
+            paragraph.alignment = .center
+            paragraph.lineBreakMode = .byTruncatingHead
+            let text = NSMutableAttributedString()
+            text.append(NSAttributedString(string: stable, attributes: [
+                .foregroundColor: NSColor.white,
+                .font: label.font ?? NSFont.systemFont(ofSize: 17, weight: .medium),
+                .paragraphStyle: paragraph,
+            ]))
+            if !tentative.isEmpty {
+                text.append(NSAttributedString(string: (stable.isEmpty ? "" : " ") + tentative, attributes: [
+                    .foregroundColor: NSColor.white.withAlphaComponent(0.45),
+                    .font: label.font ?? NSFont.systemFont(ofSize: 17, weight: .medium),
+                    .paragraphStyle: paragraph,
+                ]))
+            }
+            label.attributedStringValue = text
         }
     }
 

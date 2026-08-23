@@ -207,7 +207,7 @@ final class AppController {
             language: config.whisper.language,
             prompt: prompt.isEmpty ? nil : prompt
         )
-        captioner.onCaption = { text in window.show(text: text) }
+        captioner.onCaption = { stable, tentative in window.show(stable: stable, tentative: tentative) }
         captioner.start { [weak self] in self?.audioCapture.tailWAVData(seconds: 12) }
 
         self.captionWindow = window

@@ -139,7 +139,7 @@ see what whisper is hearing while you talk:
 "whisper": { "liveCaptions": true }
 ```
 
-a closed-captions bar appears at the bottom of the screen and fills in as you speak, a beat behind your voice. words only appear once two consecutive passes agree on them, so the caption never rewrites itself. it's a preview — what gets pasted is still the full transcription from when you stop.
+a closed-captions bar appears at the bottom of the screen and fills in as you speak, a beat behind your voice. new words show up dimmed almost immediately and turn solid once two consecutive passes agree on them — solid text never rewrites itself, only the gray tail can shift. it's a preview — what gets pasted is still the full transcription from when you stop.
 
 needs local whisper.cpp (`brew install whisper-cpp`); without it the option quietly does nothing.
 

@@ -70,12 +70,12 @@ Local is ~10x slower than groq, so on a healthy network the cloud always wins an
 
 ## live captions
 
-`whisper.liveCaptions` (default **false**) shows closed captions while recording: every 1.5s the last ~12s of audio is re-transcribed with local whisper-cli and the result feeds a fixed-size caption bar at the bottom of the screen (`CaptionWindow`, separate from the animation overlay so it works with the pill too). **Preview only** — the pasted text always comes from the full transcription at stop.
+`whisper.liveCaptions` (default **false**) shows closed captions while recording: every 1.0s the last ~12s of audio is re-transcribed with local whisper-cli and the result feeds a fixed-size caption bar at the bottom of the screen (`CaptionWindow`, separate from the animation overlay so it works with the pill too). **Preview only** — the pasted text always comes from the full transcription at stop.
 
 Three pieces:
 - `AudioCapture.tailWAVData(seconds:)` — in-memory ring buffer of the converted 16k samples. The wav on disk can't be read mid-write (header says 0 bytes until finalize), so captions read from here.
 - `LiveCaptioner` — timer on a utility queue, one whisper-cli process per pass, skips a tick if the previous is still running. Requires whisper-cli; whisperKit is too slow to start per-pass, so no binary → captions silently off (logged).
-- **LocalAgreement-2** in `LiveCaptioner.merge`: a word is only displayed once two consecutive passes agree on it, and the committed text is append-only — the caption never rewrites itself, it lags ~1 pass instead. The alignment tolerates up to 6 mangled words at the window's leading edge (`skip`) and up to 3 committed words that a later pass drops (`drop`) — without the drop tolerance one vanished "yes," stalled captions for the rest of the recording (measured on a real 64s dictation: 27 words committed without it, 64 with, append-only both ways).
+- **LocalAgreement-2** in `LiveCaptioner.merge`: a word is only displayed once two consecutive passes agree on it, and the committed text is append-only — the caption never rewrites itself, it lags ~1 pass instead. The **pending tail is shown too, dimmed** — words appear near-instantly in gray and turn white once confirmed; only gray text may shift. Confirmed-word latency ≈ interval + agreement pass + ~0.5s transcribe ≈ 1.5-2.5s. The alignment tolerates up to 6 mangled words at the window's leading edge (`skip`) and up to 3 committed words that a later pass drops (`drop`) — without the drop tolerance one vanished "yes," stalled captions for the rest of the recording (measured on a real 64s dictation: 27 words committed without it, 64 with, append-only both ways).
 
 The caption label uses `.byTruncatingHead` in a fixed frame: newest words at the right edge, old ones slide off, no reflow.
 

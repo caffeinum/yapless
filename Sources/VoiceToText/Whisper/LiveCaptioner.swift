@@ -30,10 +30,12 @@ final class LiveCaptioner {
     private let tempURL = FileManager.default.temporaryDirectory
         .appendingPathComponent("yapless-caption-\(ProcessInfo.processInfo.processIdentifier).wav")
 
-    var onCaption: ((String) -> Void)?
+    /// (committed, pending): committed never rewrites; pending is the
+    /// unconfirmed tail and may change until the next pass agrees with it.
+    var onCaption: ((String, String) -> Void)?
 
     init(binaryPath: String, modelPath: String, language: String?, prompt: String?,
-         interval: TimeInterval = 1.5, windowSeconds: Double = 12) {
+         interval: TimeInterval = 1.0, windowSeconds: Double = 12) {
         self.binaryPath = binaryPath
         self.modelPath = modelPath
         self.language = language
@@ -114,12 +116,12 @@ final class LiveCaptioner {
               Self.same(pendingWords[agreed], new[agreed]) {
             agreed += 1
         }
-        if agreed > 0 {
-            committed.append(contentsOf: new.prefix(agreed))
-            let text = committed.joined(separator: " ")
-            DispatchQueue.main.async { [weak self] in self?.onCaption?(text) }
-        }
+        committed.append(contentsOf: new.prefix(agreed))
         pendingWords = Array(new.dropFirst(agreed))
+
+        let stable = committed.joined(separator: " ")
+        let tentative = pendingWords.joined(separator: " ")
+        DispatchQueue.main.async { [weak self] in self?.onCaption?(stable, tentative) }
     }
 
     /// Word equality for agreement: case and trailing punctuation don't count
