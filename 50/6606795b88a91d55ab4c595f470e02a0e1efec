@@ -1,0 +1,27 @@
+Sources/VoiceToText/AppController.swift
+  s_af6ac2936cd2ef::t_83edb352a914ff 210
+Sources/VoiceToText/Overlay/CaptionWindow.swift
+  s_af6ac2936cd2ef::t_83edb352a914ff 14-16,20-38
+Sources/VoiceToText/Whisper/LiveCaptioner.swift
+  s_af6ac2936cd2ef::t_83edb352a914ff 33-35,38,119,121-124
+CLAUDE.md
+  s_af6ac2936cd2ef::t_c80a67c60333fe 73,78
+README.md
+  s_af6ac2936cd2ef::t_294fd5cbda1c22 142
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.23",
+  "base_commit_sha": "506606795b88a91d55ab4c595f470e02a0e1efec",
+  "prompts": {},
+  "sessions": {
+    "s_af6ac2936cd2ef": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f895d0ef-8bdc-4d75-a045-5a3c805b6dad",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Aleksey Bykhun <theisease@gmail.com>"
+    }
+  }
+}
