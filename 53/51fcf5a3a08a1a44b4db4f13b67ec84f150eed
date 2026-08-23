@@ -1,0 +1,21 @@
+CLAUDE.md
+  s_af6ac2936cd2ef::t_6c8e41ec6083a5 43,71
+README.md
+  s_af6ac2936cd2ef::t_6c8e41ec6083a5 42-43,96
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.23",
+  "base_commit_sha": "5351fcf5a3a08a1a44b4db4f13b67ec84f150eed",
+  "prompts": {},
+  "sessions": {
+    "s_af6ac2936cd2ef": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f895d0ef-8bdc-4d75-a045-5a3c805b6dad",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Aleksey Bykhun <theisease@gmail.com>"
+    }
+  }
+}
