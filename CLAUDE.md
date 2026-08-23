@@ -42,6 +42,8 @@ Sources/VoiceToText/
 
 local order: whisper-cpp → whisperkit (first binary found wins). whisper-cpp is discovered as `whisper-cli` first — homebrew renamed the binary in 1.9.x — then the old `whisper-cpp` name. It runs on **Metal**: 0.53s wall / 0.16s cpu on a 4.2s clip, ~10x faster than the CPU-only openai-whisper it replaced (4.92s / 9.10s) and than whisperkit (5.49s / 0.91s). openai-whisper was removed; PyTorch has no MPS path for whisper, so it was always CPU.
 
+Alternatives measured on the same clip and rejected: `parakeet-mlx` 2.42s warm (679s first run — HF download) and it verbalizes alphanumerics ("Cr two hundred twenty two" where whisper gives "CR222"); it is also English-only. Published benchmarks that rank parakeet above whisper.cpp measure warm in-process inference — yapless pays process startup on every run, which is where the difference goes. whisper.cpp 1.9.2 ships its own `parakeet-cli` on the same Metal runtime if this is worth revisiting.
+
 cloud backends are retried 3× with exponential backoff (transient net/api errors); local backends are tried once each. if a cloud provider's key is missing OR the api fails (down, overdue billing, rate limit), it automatically falls through to the next link — no manual switch needed. `isCloudVariant()` gates the retry behavior.
 
 all models are **whisper-large / v3** (not turbo), chosen for accuracy:
