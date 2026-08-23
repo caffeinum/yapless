@@ -270,6 +270,13 @@ final class WhisperEngine {
                         default:
                             text = try self.transcribeLocally(variant: variant, audioPath: audioURL.path)
                         }
+                        // An empty transcript is a failure, not a result. Local
+                        // backends already throw here; cloud ones can return
+                        // 200 with {"text": ""}, and in a race that empty string
+                        // would settle first and discard a lane that heard words.
+                        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                            throw WhisperError.transcriptionFailed("\(variant) returned an empty transcript")
+                        }
                         fputs("Transcribed via \(variant)\n", stderr)
                         completion(.success(text))
                         return
