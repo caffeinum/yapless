@@ -36,7 +36,7 @@ Sources/VoiceToText/
 
 `WhisperEngine` builds an ordered **fallback chain** at init (`providers: [WhisperVariant]`) and walks it until one succeeds:
 
-- `auto`: groq → deepinfra → fireworks → replicate → fal (each if credentialed) → first local whisper found
+- `auto`: **local whisper first** (measured faster than every cloud provider — 0.5s vs 1.2-9s wall), then groq → deepinfra → fireworks → replicate → fal (each if credentialed) as fallback
 - `groq`/`deepinfra`/`fireworks`/`fal`/`replicate`: that provider (if credentialed) → local
 - `local`/`openai`: local only (openai api not wired up yet, `.openai` == local)
 

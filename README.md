@@ -38,11 +38,11 @@ yapless auto-detects what you have:
 
 | backend | setup | speed |
 |---------|-------|-------|
-| **groq** (cloud) | set `GROQ_API_KEY` | fastest |
-| **whisper.cpp** (local) | `brew install whisper-cpp` | fast — runs on Metal |
+| **whisper.cpp** (local) | `brew install whisper-cpp` | fastest — Metal, ~0.5s per clip |
+| **groq** (cloud) | set `GROQ_API_KEY` | fast, large-v3 accuracy |
 | **whisperkit** (local) | apple native | slower to start |
 
-groq is recommended - free tier, fast, accurate. local options for offline/privacy.
+local whisper.cpp is the default when installed — on apple silicon it beats the cloud's network round-trip outright. groq stays as the fallback (and the accuracy pick: it runs large-v3).
 
 ## usage
 
