@@ -2,7 +2,6 @@ import Foundation
 
 enum WhisperVariant {
     case whisperCpp
-    case openaiWhisper
     case whisperKit
     case groq
     case deepInfra
@@ -35,7 +34,7 @@ final class WhisperEngine {
         var errorDescription: String? {
             switch self {
             case .binaryNotFound:
-                return "No whisper binary found. Install with: brew install openai-whisper"
+                return "No whisper binary found. Install with: brew install whisper-cpp"
             case .transcriptionFailed(let message):
                 return "Transcription failed: \(message)"
             case .permanentFailure(let message):
@@ -103,7 +102,7 @@ final class WhisperEngine {
         switch variant {
         case .groq, .deepInfra, .fireworks, .fal, .replicate:
             return true
-        case .openaiWhisper, .whisperCpp, .whisperKit:
+        case .whisperCpp, .whisperKit:
             return false
         }
     }
@@ -121,8 +120,12 @@ final class WhisperEngine {
 
     private func detectLocalWhisperBinary() {
         let candidates: [(String, WhisperVariant)] = [
-            ("/opt/homebrew/bin/whisper", .openaiWhisper),
-            ("/usr/local/bin/whisper", .openaiWhisper),
+            // whisper.cpp's homebrew formula renamed the binary to whisper-cli
+            // (1.9.x); whisper-cpp is kept for older installs. Missing this
+            // rename is what silently demoted the Metal backend below the
+            // CPU-only one for months.
+            ("/opt/homebrew/bin/whisper-cli", .whisperCpp),
+            ("/usr/local/bin/whisper-cli", .whisperCpp),
             ("/opt/homebrew/bin/whisper-cpp", .whisperCpp),
             ("/usr/local/bin/whisper-cpp", .whisperCpp),
             ("/opt/homebrew/bin/whisperkit-cli", .whisperKit),
@@ -142,7 +145,7 @@ final class WhisperEngine {
         let pathDirs = pathEnv.split(separator: ":").map(String.init)
 
         let searchOrder: [(String, WhisperVariant)] = [
-            ("whisper", .openaiWhisper),
+            ("whisper-cli", .whisperCpp),
             ("whisper-cpp", .whisperCpp),
             ("whisperkit-cli", .whisperKit),
         ]
@@ -643,17 +646,6 @@ final class WhisperEngine {
         let arguments: [String]
 
         switch variant {
-        case .openaiWhisper:
-            let outputDir = FileManager.default.temporaryDirectory.path
-            arguments = [
-                audioPath,
-                "--model", config.model,
-                "--output_format", "txt",
-                "--output_dir", outputDir
-            ]
-            + (config.language.map { ["--language", $0] } ?? [])
-            + (initialPrompt.map { ["--initial_prompt", $0] } ?? [])
-
         case .whisperCpp:
             let modelPath = findWhisperCppModel()
             arguments = [
@@ -698,8 +690,8 @@ final class WhisperEngine {
             throw WhisperError.transcriptionFailed(errorMessage)
         }
 
-        // openai-whisper and whisper-cpp write the transcript to a FILE. If that
-        // file is missing the run failed — openai-whisper exits 0 even when it
+        // whisper-cpp writes the transcript to a FILE. If that
+        // file is missing the run failed — it can exit 0 even when it
         // could not decode the audio ("Skipping foo.wav due to RuntimeError:
         // Failed to load audio: dyld…"), and that message goes to stdout. The
         // old code fell through and returned stdout as the transcript, so a
@@ -742,10 +734,6 @@ final class WhisperEngine {
     /// Where this backend writes its transcript, or nil if it prints to stdout.
     private func transcriptFilePath(for variant: WhisperVariant, audioPath: String) -> String? {
         switch variant {
-        case .openaiWhisper:
-            let baseName = ((audioPath as NSString).lastPathComponent as NSString).deletingPathExtension
-            return FileManager.default.temporaryDirectory
-                .appendingPathComponent("\(baseName).txt").path
         case .whisperCpp:
             return audioPath + ".txt"
         default:
