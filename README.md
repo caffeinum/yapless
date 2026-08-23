@@ -39,9 +39,8 @@ yapless auto-detects what you have:
 | backend | setup | speed |
 |---------|-------|-------|
 | **groq** (cloud) | set `GROQ_API_KEY` | fastest |
-| **whisper.cpp** (local) | `brew install whisper-cpp` | fast |
-| **openai-whisper** (local) | `pip install openai-whisper` | medium |
-| **whisperkit** (local) | apple native | medium |
+| **whisper.cpp** (local) | `brew install whisper-cpp` | fast — runs on Metal |
+| **whisperkit** (local) | apple native | slower to start |
 
 groq is recommended - free tier, fast, accurate. local options for offline/privacy.
 
@@ -94,7 +93,7 @@ yapless --record --animation-style waveform
 
 names and jargon that whisper keeps mangling go in `whisper.vocabulary`. they're sent as whisper's initial prompt, which biases spelling — it's a nudge, not a hard rule, and a long list dilutes it, so keep it to words you actually say. `whisper.prompt` sets a freeform sentence in front of them.
 
-honored by groq, deepinfra, fireworks, and local openai-whisper / whisper-cpp. replicate, fal and whisperkit take no prompt and ignore it.
+honored by groq, deepinfra, fireworks, and local whisper-cpp. replicate, fal and whisperkit take no prompt and ignore it.
 
 ### running from a launcher
 

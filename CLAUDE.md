@@ -40,7 +40,7 @@ Sources/VoiceToText/
 - `groq`/`deepinfra`/`fireworks`/`fal`/`replicate`: that provider (if credentialed) → local
 - `local`/`openai`: local only (openai api not wired up yet, `.openai` == local)
 
-local order: openai-whisper → whisper-cpp → whisperkit (first binary found wins).
+local order: whisper-cpp → whisperkit (first binary found wins). whisper-cpp is discovered as `whisper-cli` first — homebrew renamed the binary in 1.9.x — then the old `whisper-cpp` name. It runs on **Metal**: 0.53s wall / 0.16s cpu on a 4.2s clip, ~10x faster than the CPU-only openai-whisper it replaced (4.92s / 9.10s) and than whisperkit (5.49s / 0.91s). openai-whisper was removed; PyTorch has no MPS path for whisper, so it was always CPU.
 
 cloud backends are retried 3× with exponential backoff (transient net/api errors); local backends are tried once each. if a cloud provider's key is missing OR the api fails (down, overdue billing, rate limit), it automatically falls through to the next link — no manual switch needed. `isCloudVariant()` gates the retry behavior.
 
@@ -68,7 +68,7 @@ Local is ~10x slower than groq, so on a healthy network the cloud always wins an
 
 ## vocabulary / initial prompt
 
-`whisper.vocabulary` (array) and `whisper.prompt` (string) become whisper's **initial prompt** — the sentence the decoder conditions on, which biases spelling toward those words. built in `WhisperEngine.initialPrompt`, sent as the `prompt` multipart field to groq/deepinfra/fireworks, `--initial_prompt` to openai-whisper, `--prompt` to whisper-cpp. **not** supported by replicate (incredibly-fast-whisper takes no prompt), fal, or whisperkit — those silently ignore it.
+`whisper.vocabulary` (array) and `whisper.prompt` (string) become whisper's **initial prompt** — the sentence the decoder conditions on, which biases spelling toward those words. built in `WhisperEngine.initialPrompt`, sent as the `prompt` multipart field to groq/deepinfra/fireworks, `--prompt` to whisper-cpp. **not** supported by replicate (incredibly-fast-whisper takes no prompt), fal, or whisperkit — those silently ignore it.
 
 ## detached runs
 
