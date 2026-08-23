@@ -11,6 +11,8 @@ final class AppController {
     private lazy var whisperEngine = WhisperEngine(config: config.whisper)
     private let outputHandler: OutputHandler
     private var overlayWindow: OverlayWindow?
+    private var captioner: LiveCaptioner?
+    private var captionWindow: CaptionWindow?
     private var previousApp: NSRunningApplication?
 
     private var isRecording = false
@@ -176,6 +178,40 @@ final class AppController {
 
         Self.play(config.output.startSound, label: "startSound")
         showOverlay()
+        startCaptionsIfEnabled()
+    }
+
+    /// Live captions: preview-only, from the same audio the real transcription
+    /// will use. Requires the whisper.cpp CLI — the only local backend fast
+    /// enough to re-run every 1.5s.
+    private func startCaptionsIfEnabled() {
+        guard config.whisper.liveCaptions else { return }
+        guard let binary = WhisperEngine.whisperCppCLI() else {
+            print("liveCaptions enabled but no whisper-cli found — captions off")
+            return
+        }
+        let model = WhisperEngine.whisperCppModelPath(model: config.whisper.model)
+        guard FileManager.default.fileExists(atPath: model) else {
+            print("liveCaptions enabled but no model at \(model) — captions off")
+            return
+        }
+
+        let vocabulary = config.whisper.vocabulary.filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+        let promptParts = [config.whisper.prompt, vocabulary.isEmpty ? nil : vocabulary.joined(separator: ", ")]
+        let prompt = promptParts.compactMap { $0 }.joined(separator: ". ")
+
+        let window = CaptionWindow()
+        let captioner = LiveCaptioner(
+            binaryPath: binary,
+            modelPath: model,
+            language: config.whisper.language,
+            prompt: prompt.isEmpty ? nil : prompt
+        )
+        captioner.onCaption = { text in window.show(text: text) }
+        captioner.start { [weak self] in self?.audioCapture.tailWAVData(seconds: 12) }
+
+        self.captionWindow = window
+        self.captioner = captioner
     }
 
     func stopRecording(pressEnter: Bool = false) {
@@ -183,6 +219,11 @@ final class AppController {
         print("AppController.stopRecording called (pressEnter=\(pressEnter))")
         isRecording = false
         shouldPressEnterAfterPaste = pressEnter
+
+        captioner?.stop()
+        captioner = nil
+        captionWindow?.close()
+        captionWindow = nil
 
         audioCapture.stopRecording()
         overlayWindow?.showProcessingState()
@@ -265,6 +306,11 @@ final class AppController {
     private func failRecording(reason: String) {
         guard isRecording else { return }
         isRecording = false
+
+        captioner?.stop()
+        captioner = nil
+        captionWindow?.close()
+        captionWindow = nil
 
         playErrorSound()
         overlayWindow?.setMicLabel("recording failed — \(reason)")

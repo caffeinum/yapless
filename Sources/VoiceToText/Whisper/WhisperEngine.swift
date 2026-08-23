@@ -745,8 +745,12 @@ final class WhisperEngine {
     }
 
     private func findWhisperCppModel() -> String {
+        Self.whisperCppModelPath(model: config.model)
+    }
+
+    static func whisperCppModelPath(model: String) -> String {
         let homeDir = FileManager.default.homeDirectoryForCurrentUser
-        let modelName = "ggml-\(config.model).bin"
+        let modelName = "ggml-\(model).bin"
 
         let possiblePaths = [
             homeDir.appendingPathComponent(".local/share/whisper/\(modelName)").path,
@@ -758,5 +762,23 @@ final class WhisperEngine {
         return possiblePaths.first {
             FileManager.default.fileExists(atPath: $0)
         } ?? possiblePaths[0]
+    }
+
+    /// The whisper.cpp CLI, the only local backend fast enough to caption with
+    /// (whisperKit takes seconds per invocation just to load).
+    static func whisperCppCLI() -> String? {
+        let fixed = ["/opt/homebrew/bin/whisper-cli", "/usr/local/bin/whisper-cli",
+                     "/opt/homebrew/bin/whisper-cpp", "/usr/local/bin/whisper-cpp"]
+        if let hit = fixed.first(where: { FileManager.default.fileExists(atPath: $0) }) {
+            return hit
+        }
+        let pathDirs = (ProcessInfo.processInfo.environment["PATH"] ?? "").split(separator: ":")
+        for name in ["whisper-cli", "whisper-cpp"] {
+            for dir in pathDirs {
+                let p = "\(dir)/\(name)"
+                if FileManager.default.isExecutableFile(atPath: p) { return p }
+            }
+        }
+        return nil
     }
 }

@@ -131,6 +131,18 @@ each takes a macOS system sound name (`Purr`, `Tink`, `Pop`, `Bottle`, `Morse`, 
 
 pick short ones for `processingSound` — anything over ~0.8s is still playing when the text arrives. and note the start sound plays while the mic is already recording: at a normal volume on a directional mic it doesn't reach the recording, but a loud one on a laptop mic could feed itself.
 
+### live captions
+
+see what whisper is hearing while you talk:
+
+```json
+"whisper": { "liveCaptions": true }
+```
+
+a closed-captions bar appears at the bottom of the screen and fills in as you speak, a beat behind your voice. words only appear once two consecutive passes agree on them, so the caption never rewrites itself. it's a preview — what gets pasted is still the full transcription from when you stop.
+
+needs local whisper.cpp (`brew install whisper-cpp`); without it the option quietly does nothing.
+
 ### refusing silence
 
 whisper invents confident sentences out of silence — "Thank you for watching!" is a real thing it returns for an empty room. yapless refuses to transcribe a recording that has too little voice-level audio in it:

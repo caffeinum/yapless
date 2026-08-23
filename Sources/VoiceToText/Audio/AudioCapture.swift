@@ -28,6 +28,13 @@ final class AudioCapture {
     var silenceFloor: Float = 0.01
     /// Seconds of voice-level audio in the current recording.
     private(set) var voicedSeconds: Double = 0
+
+    /// Rolling tail of the recording (16k mono Int16), for live captions.
+    /// The WAV on disk can't be read mid-write — its header says 0 bytes
+    /// until the file is finalized — so captioning reads from here instead.
+    private let tailLock = NSLock()
+    private var tailSamples: [Int16] = []
+    private let tailMaxSamples = 16_000 * 12
     /// Saved system default before we switched it; restored on stopRecording.
     private var savedSystemDefaultDeviceID: AudioDeviceID?
     /// Decaying reference level used to normalise the spectrum across frames.
@@ -156,6 +163,7 @@ final class AudioCapture {
             bufferRMSSum = 0
             voicedSeconds = 0
             lastStatsLog = Date()
+            tailLock.lock(); tailSamples.removeAll(keepingCapacity: true); tailLock.unlock()
 
             audioFile = try AVAudioFile(
                 forWriting: recordingURL,
@@ -276,7 +284,44 @@ final class AudioCapture {
             } catch {
                 print("Failed to write audio buffer: \(error)")
             }
+            appendToTail(convertedBuffer)
         }
+    }
+
+    private func appendToTail(_ buffer: AVAudioPCMBuffer) {
+        guard let data = buffer.int16ChannelData?[0] else { return }
+        let count = Int(buffer.frameLength)
+        tailLock.lock()
+        tailSamples.append(contentsOf: UnsafeBufferPointer(start: data, count: count))
+        if tailSamples.count > tailMaxSamples {
+            tailSamples.removeFirst(tailSamples.count - tailMaxSamples)
+        }
+        tailLock.unlock()
+    }
+
+    /// The last `seconds` of the recording as a complete, self-contained WAV.
+    /// Returns nil until there's at least a second of audio to work with.
+    func tailWAVData(seconds: Double) -> Data? {
+        tailLock.lock()
+        let wanted = min(tailSamples.count, Int(seconds * 16_000))
+        let samples = Array(tailSamples.suffix(wanted))
+        tailLock.unlock()
+
+        guard samples.count >= 16_000 else { return nil }
+
+        let byteCount = samples.count * 2
+        var data = Data(capacity: 44 + byteCount)
+        func put(_ v: UInt32) { withUnsafeBytes(of: v.littleEndian) { data.append(contentsOf: $0) } }
+        func put16(_ v: UInt16) { withUnsafeBytes(of: v.littleEndian) { data.append(contentsOf: $0) } }
+        data.append(contentsOf: Array("RIFF".utf8)); put(UInt32(36 + byteCount))
+        data.append(contentsOf: Array("WAVE".utf8))
+        data.append(contentsOf: Array("fmt ".utf8)); put(16)
+        put16(1); put16(1)              // PCM, mono
+        put(16_000); put(32_000)        // sample rate, byte rate
+        put16(2); put16(16)             // block align, bits
+        data.append(contentsOf: Array("data".utf8)); put(UInt32(byteCount))
+        samples.withUnsafeBytes { data.append(contentsOf: $0) }
+        return data
     }
 
     private func calculateRMS(buffer: AVAudioPCMBuffer) -> Float {
