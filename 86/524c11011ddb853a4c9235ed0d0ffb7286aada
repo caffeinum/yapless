@@ -1,0 +1,36 @@
+Sources/VoiceToText/Whisper/LiveCaptioner.swift
+  s_af6ac2936cd2ef::t_4f2bc271daffd7 1-81,88-89,107-108,110-156
+  s_af6ac2936cd2ef::t_a27ead17d9cdbc 82-87,90-106,109
+Sources/VoiceToText/AppController.swift
+  s_af6ac2936cd2ef::t_8c6bfb7361ae27 14-15,181-214,223-226
+  s_af6ac2936cd2ef::t_7412f4efa31f7f 310-314
+  s_af6ac2936cd2ef::t_f59062ef24b01c 227
+Sources/VoiceToText/Audio/AudioCapture.swift
+  s_af6ac2936cd2ef::t_b412d382a62db4 31-37,166,287-297,299-324
+Sources/VoiceToText/Whisper/WhisperEngine.swift
+  s_af6ac2936cd2ef::t_6f571403989c41 748-751,753,766-783
+Sources/VoiceToText/Config/Config.swift
+  s_af6ac2936cd2ef::t_debc3ef1b9c277 130-131,133-136,157
+Sources/VoiceToText/Overlay/CaptionWindow.swift
+  s_af6ac2936cd2ef::t_db5424b77b4cd4 1-72
+CLAUDE.md
+  s_af6ac2936cd2ef::t_3f71f5a4cf72cc 71-81
+README.md
+  s_af6ac2936cd2ef::t_0ac0672ccd909c 134-145
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.23",
+  "base_commit_sha": "86524c11011ddb853a4c9235ed0d0ffb7286aada",
+  "prompts": {},
+  "sessions": {
+    "s_af6ac2936cd2ef": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f895d0ef-8bdc-4d75-a045-5a3c805b6dad",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Aleksey Bykhun <theisease@gmail.com>"
+    }
+  }
+}
