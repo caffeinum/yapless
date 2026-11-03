@@ -220,11 +220,14 @@ final class AppController {
             print("live: no focused element (accessibility not granted, or nothing focused) — will paste at the end")
         }
 
+        dictation.onCommit = { [weak self] words in self?.liveInsertion?.commit(words) }
+        // The words are already appearing in the field; a caption bar would
+        // show them twice. Only without a target is there nothing to watch.
+        guard liveInsertion == nil else { return }
         let window = CaptionWindow()
         dictation.onUpdate = { committed, tentative in
             window.show(stable: committed.joined(separator: " "), tentative: tentative)
         }
-        dictation.onCommit = { [weak self] words in self?.liveInsertion?.commit(words) }
         captionWindow = window
     }
 
@@ -293,9 +296,6 @@ final class AppController {
             self?.cancelTranscription()
         }
         overlayWindow?.showRecordingState(activate: streaming == nil)
-        if let live = liveInsertion {
-            overlayWindow?.setSinkLabel("live: \(live.label)")
-        }
 
         if let sink = config.output.command, !sink.isEmpty {
             overlayWindow?.setSinkLabel(sink)
