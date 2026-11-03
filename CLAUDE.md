@@ -223,3 +223,14 @@ matching is case-insensitive, exact name first, then substring on name or UID. `
 - diagnostic logging in AudioCapture prints `Audio stats: N buffers, peak=X, avgRMS=Y` every ~1s; peak=0 means the mic is silent (perms or routing).
 - XCTest doesn't work with swift package manager on this project (pre-existing issue)
 - config was renamed from `~/.config/voice-to-text/` to `~/.config/yapless/` - migrate manually if needed
+
+## releasing (brew)
+
+`brew install caffeinum/tap/yapless` — formula at `caffeinum/homebrew-tap/Formula/yapless.rb`, prebuilt arm64 binary (no source build: brew would need full Xcode for SwiftPM). To cut a release:
+
+1. bump `version` in `main.swift`, commit, `git tag -a vX.Y.Z` and push the tag
+2. `swift build -c release`, then tar `yapless` + `FluidAudio_FluidAudio.bundle` + `LICENSE` flat into `yapless_darwin_arm64.tar.gz`
+3. `gh release create vX.Y.Z yapless_darwin_arm64.tar.gz`
+4. update `url`/`version`/`sha256` in the formula, `brew style`, push, `brew upgrade yapless && brew test yapless`
+
+The formula installs into `libexec` and symlinks `bin/yapless`. The FluidAudio bundle only carries TTS lexicons that the ASR path never loads; it ships anyway so `Bundle.module` can find it.
