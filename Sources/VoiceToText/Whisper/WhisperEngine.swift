@@ -3,6 +3,7 @@ import Foundation
 enum WhisperVariant {
     case whisperCpp
     case whisperKit
+    case parakeet
     case groq
     case deepInfra
     case fireworks
@@ -16,6 +17,8 @@ final class WhisperEngine {
     /// Ordered fallback chain: tried in sequence until one succeeds.
     private var providers: [WhisperVariant] = []
     private var whisperPath: String?
+    private var parakeetPath: String?
+    private var parakeetModelPath: String?
     private var groqApiKey: String?
     private var deepInfraToken: String?
     private var fireworksToken: String?
@@ -91,6 +94,10 @@ final class WhisperEngine {
         case .local, .openai:
             // OpenAI API isn't wired up yet; treat as local-only.
             detectLocalWhisperBinary()
+
+        case .parakeet:
+            detectParakeet()
+            detectLocalWhisperBinary()
         }
 
         if providers.isEmpty {
@@ -105,7 +112,7 @@ final class WhisperEngine {
         switch variant {
         case .groq, .deepInfra, .fireworks, .fal, .replicate:
             return true
-        case .whisperCpp, .whisperKit:
+        case .whisperCpp, .whisperKit, .parakeet:
             return false
         }
     }
@@ -164,6 +171,37 @@ final class WhisperEngine {
                 }
             }
         }
+    }
+
+    /// parakeet-cli ships with whisper.cpp ≥1.9 and only reads parakeet TDT
+    /// ggml models. Missing binary or model is announced and skipped, the same
+    /// way a missing cloud key is, so whisper still catches the run.
+    private func detectParakeet() {
+        guard let binary = Self.findExecutable("parakeet-cli") else {
+            fputs("parakeet selected but parakeet-cli not found (brew install whisper-cpp), using local whisper\n", stderr)
+            return
+        }
+        let model = Self.parakeetModelPath(model: config.parakeetModel)
+        guard FileManager.default.fileExists(atPath: model) else {
+            fputs("parakeet selected but model missing at \(model) — download ggml-parakeet-\(config.parakeetModel).bin from huggingface.co/ggml-org/parakeet-GGUF; using local whisper\n", stderr)
+            return
+        }
+        parakeetPath = binary
+        parakeetModelPath = model
+        providers.append(.parakeet)
+        fputs("Found parakeet: \(binary) with \(model)\n", stderr)
+    }
+
+    static func parakeetModelPath(model: String) -> String {
+        if model.hasPrefix("/") { return model }
+        return FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".local/share/parakeet/ggml-parakeet-\(model).bin").path
+    }
+
+    static func findExecutable(_ name: String) -> String? {
+        let dirs = ["/opt/homebrew/bin", "/usr/local/bin"]
+            + (ProcessInfo.processInfo.environment["PATH"] ?? "").split(separator: ":").map(String.init)
+        return dirs.map { "\($0)/\(name)" }.first { FileManager.default.isExecutableFile(atPath: $0) }
     }
 
     func transcribe(audioURL: URL, completion: @escaping (Result<String, Error>) -> Void) {
@@ -642,13 +680,19 @@ final class WhisperEngine {
     // MARK: - Local Transcription
 
     private func transcribeLocally(variant: WhisperVariant, audioPath: String) throws -> String {
-        guard let whisperPath = whisperPath else {
+        guard let binaryPath = variant == .parakeet ? parakeetPath : whisperPath else {
             throw WhisperError.binaryNotFound
         }
 
         let arguments: [String]
 
         switch variant {
+        case .parakeet:
+            guard let modelPath = parakeetModelPath else { throw WhisperError.binaryNotFound }
+            // No language or prompt flags exist: v3 auto-detects language,
+            // and whisper.vocabulary has no effect on this backend.
+            arguments = ["-m", modelPath, "-f", audioPath, "-otxt", "-np"]
+
         case .whisperCpp:
             let modelPath = findWhisperCppModel()
             arguments = [
@@ -673,7 +717,7 @@ final class WhisperEngine {
         }
 
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: whisperPath)
+        process.executableURL = URL(fileURLWithPath: binaryPath)
         process.arguments = arguments
 
         let outputPipe = Pipe()
@@ -737,7 +781,7 @@ final class WhisperEngine {
     /// Where this backend writes its transcript, or nil if it prints to stdout.
     private func transcriptFilePath(for variant: WhisperVariant, audioPath: String) -> String? {
         switch variant {
-        case .whisperCpp:
+        case .whisperCpp, .parakeet:
             return audioPath + ".txt"
         default:
             return nil

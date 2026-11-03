@@ -84,3 +84,6 @@ models/
 *.wav
 *.mp3
 recordings/
+
+# Local experiment scratch: notes quote private dictations, keep out of this public repo
+experiments/

@@ -111,6 +111,7 @@ enum TranscriptionBackend: String, Codable {
     case replicate  // Replicate API (incredibly-fast-whisper, cloud)
     case openai     // OpenAI Whisper API (cloud)
     case local      // Local whisper (openai-whisper, whisper-cpp, whisperkit)
+    case parakeet   // Local NVIDIA parakeet via whisper.cpp's parakeet-cli, whisper as fallback
 }
 
 struct WhisperConfig: Codable {
@@ -134,6 +135,9 @@ struct WhisperConfig: Codable {
     /// audio re-transcribed locally every ~1.5s. Preview only — the pasted
     /// text always comes from the full transcription at stop.
     var liveCaptions: Bool = false
+    /// ggml parakeet model for `backend: parakeet`, resolved as
+    /// `ggml-parakeet-<name>.bin` in ~/.local/share/parakeet (or an absolute path).
+    var parakeetModel: String = "tdt-0.6b-v3-q8_0"
     var groqApiKey: String? = nil  // Groq API key, or use GROQ_API_KEY env var
     var deepInfraApiKey: String? = nil  // DeepInfra key, or use DEEPINFRA_API_KEY env var
     var fireworksApiKey: String? = nil  // Fireworks key, or use FIREWORKS_API_KEY env var
@@ -155,6 +159,7 @@ struct WhisperConfig: Codable {
         prompt = try container.decodeIfPresent(String.self, forKey: .prompt)
         raceLocal = try container.decodeIfPresent(Bool.self, forKey: .raceLocal) ?? false
         liveCaptions = try container.decodeIfPresent(Bool.self, forKey: .liveCaptions) ?? false
+        parakeetModel = try container.decodeIfPresent(String.self, forKey: .parakeetModel) ?? "tdt-0.6b-v3-q8_0"
         groqApiKey = try container.decodeIfPresent(String.self, forKey: .groqApiKey)
         deepInfraApiKey = try container.decodeIfPresent(String.self, forKey: .deepInfraApiKey)
         fireworksApiKey = try container.decodeIfPresent(String.self, forKey: .fireworksApiKey)

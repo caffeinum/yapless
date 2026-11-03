@@ -39,10 +39,21 @@ Sources/VoiceToText/
 - `auto`: **local whisper first** (measured faster than every cloud provider — 0.5s vs 1.2-9s wall), then groq → deepinfra → fireworks → replicate → fal (each if credentialed) as fallback
 - `groq`/`deepinfra`/`fireworks`/`fal`/`replicate`: that provider (if credentialed) → local
 - `local`/`openai`: local only (openai api not wired up yet, `.openai` == local)
+- `parakeet`: parakeet-cli → local whisper (see below)
 
 local order: whisper-cpp → whisperkit (first binary found wins). whisper-cpp is discovered as `whisper-cli` first — homebrew renamed the binary in 1.9.x — then the old `whisper-cpp` name. It runs on **Metal**: 0.53s wall / 0.16s cpu on a 4.2s clip, ~10x faster than the CPU-only openai-whisper it replaced (4.92s / 9.10s) and than whisperkit (5.49s / 0.91s). openai-whisper was removed; PyTorch has no MPS path for whisper, so it was always CPU.
 
 Alternatives measured on the same clip and rejected: `parakeet-mlx` 2.42s warm (679s first run — HF download) and it verbalizes alphanumerics ("Cr two hundred twenty two" where whisper gives "CR222"); it is also English-only. Published benchmarks that rank parakeet above whisper.cpp measure warm in-process inference — yapless pays process startup on every run, which is where the difference goes. whisper.cpp 1.9.2 ships its own `parakeet-cli` on the same Metal runtime if this is worth revisiting.
+
+### parakeet backend
+
+`--backend parakeet` / `whisper.backend: "parakeet"` runs NVIDIA parakeet-tdt-0.6b-v3 through whisper.cpp's `parakeet-cli` (ships with whisper.cpp ≥1.9, Metal), with local whisper as fallback. Model: `ggml-parakeet-<whisper.parakeetModel>.bin` in `~/.local/share/parakeet/` (default `tdt-0.6b-v3-q8_0`, from huggingface.co/ggml-org/parakeet-GGUF), or an absolute path. A missing binary or model is announced and skipped, like a missing cloud key.
+
+Measured 2026-11-02 against whisper large-v3 as reference, 14 saved dictations: parakeet 12.6% WER vs whisper base 15.2%. It gets proper nouns base misses (Vercel, GitHub, E2B), auto-detects Russian, and outputs nothing on silence. Costs: ~1.1s wall on short clips vs ~0.55s for base (it loads a 669MB model per run; on 85s clips it wins, 3.3s vs 7.9s), it **ignores `whisper.vocabulary`** (no prompt flag), and it sometimes spells numbers ("Thirteen seventy two"). So it's opt-in, not in `auto`. parakeet-cli is offline only — no streaming mode, and chunking an offline model wrecks WER.
+
+### streaming research (2026-11-02, notes kept local in `experiments/streaming/`, gitignored — they quote private dictations)
+
+For live typing into the focused field the best engine measured is **FluidAudio parakeet-unified streaming** (Swift, CoreML on the ANE): 320ms chunks show a word ~0.18s after it's spoken at 13.1% WER and ~5% of a core; 1120ms chunks give 11.8%. It is append-only (never revises), writes digits, needs 1s of silence padded at stop, and its first load compiles for 30-90s (0.2-0.5s after). Apple SpeechTranscriber (no auth prompt, model preinstalled) is 14.7% but rewrites its tail; DictationTranscriber is 18.5% and revises 55% of words. Nemotron streaming verbalizes numbers. The current LiveCaptioner is **not safe to type from**: in replays it repeated sentences, committed `[BLANK_AUDIO]`, and stalled after long pauses.
 
 cloud backends are retried 3× with exponential backoff (transient net/api errors); local backends are tried once each. if a cloud provider's key is missing OR the api fails (down, overdue billing, rate limit), it automatically falls through to the next link — no manual switch needed. `isCloudVariant()` gates the retry behavior.
 
@@ -58,7 +69,7 @@ all models are **whisper-large / v3** (not turbo), chosen for accuracy:
 
 groq/deepinfra/fireworks share `transcribeOpenAICompatible(endpoint:apiKey:model:)` — they differ only by base URL, key, and model name. fal & replicate upload audio inline as base64 `data:` URIs (no separate upload step).
 
-override the config backend per-run with `--backend auto|groq|deepinfra|fireworks|fal|replicate|local`.
+override the config backend per-run with `--backend auto|groq|deepinfra|fireworks|fal|replicate|local|parakeet`.
 
 ## racing local against cloud
 
