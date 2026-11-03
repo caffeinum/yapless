@@ -18,10 +18,25 @@ yapless is different:
 
 open source alternative to superwhisper, wispr flow, and macwhisper.
 
+### new in 0.1.0: live input
+
+```bash
+yapless --record --live
+```
+
+words appear in the field you're typing in **while you talk**, like apple dictation — but transcribed by nvidia parakeet, running on-device on the apple neural engine. no cloud, no api key. see [live input](#live-input-parakeet).
+
 ## install
 
 ```bash
-# clone and build
+brew install caffeinum/tap/yapless
+```
+
+apple silicon, macOS 14+. grant microphone and accessibility access to your terminal (or launcher) the first time.
+
+or build from source:
+
+```bash
 git clone https://github.com/caffeinum/yapless.git
 cd yapless
 swift build -c release
@@ -130,6 +145,25 @@ one sound per event, so you can tell what happened without looking:
 each takes a macOS system sound name (`Purr`, `Tink`, `Pop`, `Bottle`, `Morse`, `Funk`, `Submarine`, …) or an absolute path to your own file. `null` or `""` silences that one event.
 
 pick short ones for `processingSound` — anything over ~0.8s is still playing when the text arrives. and note the start sound plays while the mic is already recording: at a normal volume on a directional mic it doesn't reach the recording, but a loud one on a laptop mic could feed itself.
+
+### live input (parakeet)
+
+```bash
+yapless --record --live
+```
+
+or make it the default:
+
+```json
+"output": { "liveInsert": true }
+```
+
+yapless streams your voice through nvidia's **parakeet** (`parakeet-unified-1120ms`, via [FluidAudio](https://github.com/FluidInference/FluidAudio), CoreML on the neural engine) and types each word into the field you started in as soon as the next word confirms it. typed text is never rewritten or deleted mid-sentence. when you stop, the rest of the sentence lands and clipboard / enter / `output.command` run as usual.
+
+- **first run downloads the model** (~1GB, to `~/Library/Application Support/FluidAudio/`) and compiles it for your machine — that takes up to a minute or two once; after that it loads in ~0.3s.
+- **where it types:** native fields get the text through the accessibility api; terminals, browsers and electron apps get synthesized keystrokes. if you click somewhere else mid-sentence, typing stops rather than landing in the wrong place — the full transcript is still on the clipboard.
+- **english only** for now. `output.liveModel: "parakeet-unified-320ms"` shows words sooner but is noticeably less accurate.
+- try it on a saved recording without touching the keyboard: `yapless --stream-file recording.wav` prints what would be typed, and when.
 
 ### live captions
 
