@@ -10,12 +10,15 @@ import AppKit
 final class CaptionWindow {
     private var window: NSWindow?
     private var label: NSTextField?
+    /// Late updates (a pass or stream chunk finishing after stop) must not
+    /// rebuild a caption the user already saw disappear.
+    private var closed = false
 
     /// `stable` never rewrites; `tentative` is drawn dimmed and may change
     /// until the next pass confirms it.
     func show(stable: String, tentative: String) {
         DispatchQueue.main.async { [weak self] in
-            guard let self = self else { return }
+            guard let self = self, !self.closed else { return }
             if self.window == nil { self.build() }
             guard let label = self.label else { return }
 
@@ -41,6 +44,7 @@ final class CaptionWindow {
 
     func close() {
         DispatchQueue.main.async { [weak self] in
+            self?.closed = true
             self?.window?.orderOut(nil)
             self?.window = nil
             self?.label = nil
