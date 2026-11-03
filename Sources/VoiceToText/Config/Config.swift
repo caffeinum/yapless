@@ -109,6 +109,7 @@ enum TranscriptionBackend: String, Codable {
     case fireworks  // Fireworks AI API (whisper-v3, OpenAI-compatible)
     case fal        // fal.ai Wizper (whisper-v3-large, serverless GPU)
     case replicate  // Replicate API (incredibly-fast-whisper, cloud)
+    case elevenlabs // ElevenLabs Scribe v2 (most accurate measured, keyterm biasing)
     case openai     // OpenAI Whisper API (cloud)
     case local      // Local whisper (openai-whisper, whisper-cpp, whisperkit)
     case parakeet   // Local NVIDIA parakeet via whisper.cpp's parakeet-cli, whisper as fallback
@@ -143,6 +144,11 @@ struct WhisperConfig: Codable {
     var fireworksApiKey: String? = nil  // Fireworks key, or use FIREWORKS_API_KEY env var
     var falApiKey: String? = nil  // fal.ai key, or use FAL_KEY env var
     var replicateApiToken: String? = nil  // Replicate token, or use REPLICATE_API_TOKEN env var
+    var elevenLabsApiKey: String? = nil  // ElevenLabs key, or use ELEVENLABS_API_KEY env var
+    /// Live captions re-run whisper every second, so they need a model that
+    /// finishes well inside that: large-v3-turbo takes ~1.5-2s per pass on an
+    /// M1 Pro. Kept separate so `model` can be the accurate one.
+    var captionModel: String = "base"
 
     init() {}
 
@@ -165,6 +171,8 @@ struct WhisperConfig: Codable {
         fireworksApiKey = try container.decodeIfPresent(String.self, forKey: .fireworksApiKey)
         falApiKey = try container.decodeIfPresent(String.self, forKey: .falApiKey)
         replicateApiToken = try container.decodeIfPresent(String.self, forKey: .replicateApiToken)
+        elevenLabsApiKey = try container.decodeIfPresent(String.self, forKey: .elevenLabsApiKey)
+        captionModel = try container.decodeIfPresent(String.self, forKey: .captionModel) ?? "base"
     }
 }
 

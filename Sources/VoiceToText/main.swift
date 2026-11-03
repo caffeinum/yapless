@@ -42,7 +42,7 @@ struct VoiceToText: ParsableCommand {
     @Option(name: .shortAndLong, help: "Transcribe an audio file (path or 'latest')")
     var transcribe: String?
 
-    @Option(name: .long, help: "Transcription backend (auto, groq, deepinfra, fireworks, fal, replicate, local, parakeet). Overrides config.")
+    @Option(name: .long, help: "Transcription backend (auto, groq, deepinfra, fireworks, fal, replicate, elevenlabs, local, parakeet). Overrides config.")
     var backend: String?
 
     @Option(name: [.customShort("i"), .long], help: "Input device name (substring match, e.g. 'AirPods' or 'MacBook')")
@@ -77,11 +77,16 @@ struct VoiceToText: ParsableCommand {
         let arguments = [executable] + CommandLine.arguments.dropFirst().filter { $0 != "--detach" }
         var environment = ProcessInfo.processInfo.environment
         environment["YAPLESS_DETACHED"] = "1"
+        environment["YAPLESS_LAUNCH_TIME"] = String(launchTime.timeIntervalSince1970)
 
         var attr: posix_spawnattr_t?
         posix_spawnattr_init(&attr)
         defer { posix_spawnattr_destroy(&attr) }
-        posix_spawnattr_setflags(&attr, Int16(POSIX_SPAWN_SETSID))
+        // CLOEXEC_DEFAULT: only the stdio set up below follows the child. Any other
+        // fd the launcher left open (a pipe Raycast waits on for EOF) would
+        // otherwise stay open for the whole recording.
+        posix_spawnattr_setflags(&attr, Int16(POSIX_SPAWN_SETSID | POSIX_SPAWN_CLOEXEC_DEFAULT))
+        posix_spawnattr_set_qos_class_np(&attr, QOS_CLASS_USER_INTERACTIVE)
 
         // The launcher's pipes die with it; writing to a closed pipe would kill
         // the detached run with SIGPIPE mid-transcription. Log to a file instead.
@@ -122,7 +127,7 @@ struct VoiceToText: ParsableCommand {
     private func applyBackendOverride(_ appConfig: inout Config) {
         guard let backend = backend else { return }
         guard let parsed = TranscriptionBackend(rawValue: backend) else {
-            fputs("Unknown backend '\(backend)', ignoring (valid: auto, groq, deepinfra, fireworks, fal, replicate, openai, local, parakeet)\n", stderr)
+            fputs("Unknown backend '\(backend)', ignoring (valid: auto, groq, deepinfra, fireworks, fal, replicate, elevenlabs, openai, local, parakeet)\n", stderr)
             return
         }
         appConfig.whisper.backend = parsed
@@ -132,6 +137,10 @@ struct VoiceToText: ParsableCommand {
         // Line-buffer stdout/stderr so diagnostics survive abrupt exits and pipes.
         setvbuf(stdout, nil, _IOLBF, 0)
         setvbuf(stderr, nil, _IOLBF, 0)
+        raiseLaunchPriority()
+        if !detach || ProcessInfo.processInfo.environment["YAPLESS_DETACHED"] != nil {
+            MicAuthorization.prefetch()
+        }
 
         if detach && ProcessInfo.processInfo.environment["YAPLESS_DETACHED"] == nil {
             try relaunchDetached()
@@ -241,9 +250,6 @@ struct VoiceToText: ParsableCommand {
             return
         }
 
-        // Hide from Dock and Menu Bar
-        NSApplication.shared.setActivationPolicy(.accessory)
-
         // Load configuration
         let configPath = config ?? Config.defaultPath
         print("Loading config from: \(configPath)")
@@ -281,6 +287,11 @@ struct VoiceToText: ParsableCommand {
         } else if record {
             controller.startRecording()
         }
+
+        // Hide from Dock and Menu Bar. Deliberately after the capture is
+        // dispatched: NSApplication's first touch is 60-145ms that the mic
+        // doesn't need to wait for.
+        NSApplication.shared.setActivationPolicy(.accessory)
 
         // Run the main loop
         NSApplication.shared.run()

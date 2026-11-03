@@ -1,9 +1,30 @@
 import AVFoundation
 import Accelerate
+import AudioToolbox
 import CoreAudio
 
 final class AudioCapture {
-    private var audioEngine: AVAudioEngine?
+    /// A raw AUHAL bound to the chosen device by ID.
+    ///
+    /// AVAudioEngine can't do this: its input node always captures through a
+    /// private `CADefaultDeviceAggregate` built from the SYSTEM DEFAULT input,
+    /// and setting `kAudioOutputUnitProperty_CurrentDevice` on it is silently
+    /// replaced by that aggregate (measured — it bound the bluetooth default
+    /// instead of the requested mic). So picking a mic used to mean swapping
+    /// the global default, which every other app saw, which a crash left
+    /// swapped, and which cost 300-1350ms per start. AUHAL opens exactly the
+    /// device it is given and starts in about half the time of the engine.
+    private var inputUnit: AudioUnit?
+    /// Device-rate, mono Float32 — what the AUHAL hands us.
+    private var captureFormat: AVAudioFormat?
+    private var maxFramesPerSlice: AVAudioFrameCount = 4096
+    /// One converter for the whole recording: a sample-rate converter keeps
+    /// filter state between buffers, and a fresh one per ~10ms slice would
+    /// put a discontinuity at every slice boundary.
+    private var converter: AVAudioConverter?
+    /// The IO thread only renders and hands off; levels, FFT, file writes and
+    /// the caption tail all happen here, in order.
+    private let processingQueue = DispatchQueue(label: "yapless.audio.process", qos: .userInteractive)
     private var audioFile: AVAudioFile?
     private(set) var recordingURL: URL?
 
@@ -13,6 +34,9 @@ final class AudioCapture {
     /// return, leaving the overlay up over a mic that wasn't running and no
     /// sound to say so — a failure that looked exactly like listening.
     var onStartFailure: ((String) -> Void)?
+    /// Fires on main when the first slice arrives — the moment the mic is
+    /// actually live, which is what a start cue should mean.
+    var onFirstBuffer: (() -> Void)?
 
     private let fftSize = 512
     private var fftSetup: vDSP_DFT_Setup?
@@ -20,7 +44,8 @@ final class AudioCapture {
 
     private var completionHandler: ((URL) -> Void)?
     private let recordingFormat: AVAudioFormat
-    /// If set, overrides the system default input for this capture.
+    /// The device to capture from. nil means the system default, resolved at
+    /// start — either way the unit is bound to an explicit device ID.
     var preferredDevice: InputDeviceInfo?
     /// Raw-RMS level above which a buffer counts as voice, for the silence
     /// guard. NOT the same scale as `calculateRMS`, which returns a display
@@ -35,18 +60,22 @@ final class AudioCapture {
     private let tailLock = NSLock()
     private var tailSamples: [Int16] = []
     private let tailMaxSamples = 16_000 * 12
-    /// Saved system default before we switched it; restored on stopRecording.
-    private var savedSystemDefaultDeviceID: AudioDeviceID?
     /// Decaying reference level used to normalise the spectrum across frames.
     private var spectrumPeak: Float = 0
     private var lastSpectrumTime = Date()
     private var bufferCount: Int = 0
+    private var sawFirstBuffer = false
+    /// AUHAL hands over ~10ms slices; levels, the silence guard and the stats
+    /// were tuned on the engine's ~100ms buffers, so slices are gathered back
+    /// into blocks of that size before analysis. Processing queue only.
+    private var block: AVAudioPCMBuffer?
+    private var droppedSlices = 0
     private var bufferMaxSample: Float = 0
     private var bufferRMSSum: Float = 0
     private var lastStatsLog: Date = .distantPast
     /// Serialises start/stop so a stop that arrives mid-start still happens
     /// after it, now that start runs off the main thread.
-    private let controlQueue = DispatchQueue(label: "yapless.audio.control")
+    private let controlQueue = DispatchQueue(label: "yapless.audio.control", qos: .userInteractive)
 
     init() {
         self.recordingFormat = AVAudioFormat(
@@ -58,6 +87,9 @@ final class AudioCapture {
 
         fftSetup = vDSP_DFT_zop_CreateSetup(nil, vDSP_Length(fftSize), .FORWARD)
     }
+
+    /// The IO callback holds an unretained pointer to self.
+    deinit { teardownInputUnit() }
 
     func requestPermission(completion: @escaping (Bool) -> Void) {
         AVCaptureDevice.requestAccess(for: .audio) { granted in
@@ -95,75 +127,66 @@ final class AudioCapture {
             return
         }
 
-        let resolvedDevice = preferredDevice ?? Self.defaultInputDeviceInfo()
-        if let info = resolvedDevice {
-            let source = preferredDevice != nil ? "override" : "system default"
-            print("Input device (\(source)): \(info.name) [uid=\(info.uid), id=\(info.id), \(Int(info.sampleRate))Hz, \(info.channels)ch]")
-        } else {
-            print("Input device: <unknown — could not query CoreAudio>")
+        guard let device = preferredDevice ?? Self.defaultInputDeviceInfo() else {
+            reportStartFailure("no input device — CoreAudio reports no system default input")
+            return
         }
+        let source = preferredDevice != nil ? "override" : "system default"
+        print("Input device (\(source)): \(device.name) [uid=\(device.uid), id=\(device.id), \(Int(device.sampleRate))Hz, \(device.channels)ch]")
 
-        // If the user requested a specific input via --input, switch the SYSTEM default
-        // BEFORE the engine is created. AVAudioEngine.inputNode is bound to the system
-        // default at engine init; rebinding later via AudioUnitSetProperty corrupts the
-        // tap. We restore the previous default in stopRecording.
-        if let override = preferredDevice {
-            let currentDefault = Self.currentDefaultInputDeviceID()
-            if currentDefault == override.id {
-                // Already on the target — DO NOT re-set, that triggers a device reset
-                // which confuses AVAudioEngine's format detection (saw 24000Hz device
-                // get reported as 48000Hz, then zero buffers).
-                print("System default already on \(override.name) — skipping swap")
-                savedSystemDefaultDeviceID = nil
-            } else {
-                savedSystemDefaultDeviceID = currentDefault
-                if !Self.setDefaultInputDevice(override.id) {
-                    reportStartFailure("could not switch system default input to \(override.name)")
-                    return
-                }
-                let deadline = Date().addingTimeInterval(1.0)
-                var actualID = Self.currentDefaultInputDeviceID()
-                while actualID != override.id && Date() < deadline {
-                    Thread.sleep(forTimeInterval: 0.002)
-                    actualID = Self.currentDefaultInputDeviceID()
-                }
-                if actualID == override.id {
-                    // Let the device settle before the engine reads its format;
-                    // without this we saw a 24kHz device report 48kHz and then
-                    // deliver zero buffers. 0.25s was a guess, 0.05s is enough
-                    // in practice — but it is a race, so it stays non-zero.
-                    Thread.sleep(forTimeInterval: 0.05)
-                    print("Switched system default input to: \(override.name) (will restore on stop)")
-                } else {
-                    restoreSystemDefaultIfNeeded()
-                    reportStartFailure("system default did not switch to \(override.name) within 1s")
-                    return
-                }
-            }
-        }
+        bufferCount = 0
+        sawFirstBuffer = false
+        droppedSlices = 0
+        block = nil
+        bufferMaxSample = 0
+        bufferRMSSum = 0
+        voicedSeconds = 0
+        lastStatsLog = Date()
+        tailLock.lock(); tailSamples.removeAll(keepingCapacity: true); tailLock.unlock()
 
         do {
-            audioEngine = AVAudioEngine()
-            guard let audioEngine = audioEngine else { return }
+            let unit = try Self.makeInputUnit(for: device.id)
+            inputUnit = unit
 
-            let inputNode = audioEngine.inputNode
-            let inputFormat = inputNode.outputFormat(forBus: 0)
-            print("Input format: \(Int(inputFormat.sampleRate))Hz, \(inputFormat.channelCount)ch")
-
-            guard inputFormat.channelCount > 0, inputFormat.sampleRate > 0 else {
-                reportStartFailure(
-                    "input format invalid (\(inputFormat.channelCount)ch @ \(Int(inputFormat.sampleRate))Hz) — "
+            let deviceFormat = try Self.streamFormat(unit, scope: kAudioUnitScope_Input, element: 1)
+            print("Input format: \(Int(deviceFormat.mSampleRate))Hz, \(deviceFormat.mChannelsPerFrame)ch")
+            guard deviceFormat.mChannelsPerFrame > 0, deviceFormat.mSampleRate > 0 else {
+                throw CaptureError(
+                    "input format invalid (\(deviceFormat.mChannelsPerFrame)ch @ \(Int(deviceFormat.mSampleRate))Hz) — "
                     + "mic likely unavailable; check Settings → Privacy → Microphone"
                 )
-                return
             }
 
-            bufferCount = 0
-            bufferMaxSample = 0
-            bufferRMSSum = 0
-            voicedSeconds = 0
-            lastStatsLog = Date()
-            tailLock.lock(); tailSamples.removeAll(keepingCapacity: true); tailLock.unlock()
+            // Mono at the device rate: AUHAL maps the first device channel to
+            // it. It will not resample on the input side, so 16k happens in
+            // the converter below.
+            guard let capture = AVAudioFormat(
+                commonFormat: .pcmFormatFloat32, sampleRate: deviceFormat.mSampleRate,
+                channels: 1, interleaved: false
+            ) else {
+                throw CaptureError("could not describe a \(Int(deviceFormat.mSampleRate))Hz mono capture format")
+            }
+            var clientFormat = capture.streamDescription.pointee
+            try Self.check(
+                AudioUnitSetProperty(unit, kAudioUnitProperty_StreamFormat, kAudioUnitScope_Output, 1,
+                                     &clientFormat, UInt32(MemoryLayout<AudioStreamBasicDescription>.size)),
+                "set capture format"
+            )
+            captureFormat = capture
+
+            guard let converter = AVAudioConverter(from: capture, to: recordingFormat) else {
+                throw CaptureError("no converter from \(Int(capture.sampleRate))Hz to 16kHz")
+            }
+            self.converter = converter
+
+            var maxFrames: UInt32 = 0
+            var size = UInt32(MemoryLayout<UInt32>.size)
+            try Self.check(
+                AudioUnitGetProperty(unit, kAudioUnitProperty_MaximumFramesPerSlice, kAudioUnitScope_Global, 0,
+                                     &maxFrames, &size),
+                "read max frames per slice"
+            )
+            maxFramesPerSlice = maxFrames
 
             audioFile = try AVAudioFile(
                 forWriting: recordingURL,
@@ -177,22 +200,100 @@ final class AudioCapture {
                 ]
             )
 
-            inputNode.installTap(
-                onBus: 0,
-                bufferSize: 512,
-                format: inputFormat
-            ) { [weak self] buffer, _ in
-                self?.processAudioBuffer(buffer)
-            }
-
-            audioEngine.prepare()
-            try audioEngine.start()
+            var callback = AURenderCallbackStruct(
+                inputProc: audioCaptureInputProc,
+                inputProcRefCon: Unmanaged.passUnretained(self).toOpaque()
+            )
+            try Self.check(
+                AudioUnitSetProperty(unit, kAudioOutputUnitProperty_SetInputCallback, kAudioUnitScope_Global, 0,
+                                     &callback, UInt32(MemoryLayout<AURenderCallbackStruct>.size)),
+                "set input callback"
+            )
+            try Self.check(AudioUnitInitialize(unit), "initialize input unit")
+            try Self.check(AudioOutputUnitStart(unit), "start input unit")
 
             print("Recording started to \(recordingURL.path)")
-
         } catch {
-            reportStartFailure("failed to start recording: \(error.localizedDescription)")
+            teardownInputUnit()
+            audioFile = nil
+            reportStartFailure("failed to start recording: \(error)")
         }
+    }
+
+    struct CaptureError: Error, CustomStringConvertible {
+        let description: String
+        init(_ description: String) { self.description = description }
+    }
+
+    private static func check(_ status: OSStatus, _ step: String) throws {
+        guard status == noErr else { throw CaptureError("\(step) failed (OSStatus \(status))") }
+    }
+
+    /// Input-only AUHAL on `deviceID`. Output is disabled before the device is
+    /// set, so nothing is ever opened for playback.
+    private static func makeInputUnit(for deviceID: AudioDeviceID) throws -> AudioUnit {
+        var description = AudioComponentDescription(
+            componentType: kAudioUnitType_Output,
+            componentSubType: kAudioUnitSubType_HALOutput,
+            componentManufacturer: kAudioUnitManufacturer_Apple,
+            componentFlags: 0,
+            componentFlagsMask: 0
+        )
+        guard let component = AudioComponentFindNext(nil, &description) else {
+            throw CaptureError("no HAL output audio unit on this system")
+        }
+        var instance: AudioUnit?
+        try check(AudioComponentInstanceNew(component, &instance), "create input unit")
+        guard let unit = instance else { throw CaptureError("create input unit returned nil") }
+
+        do {
+            var enable: UInt32 = 1
+            var disable: UInt32 = 0
+            let flagSize = UInt32(MemoryLayout<UInt32>.size)
+            try check(AudioUnitSetProperty(unit, kAudioOutputUnitProperty_EnableIO, kAudioUnitScope_Input, 1,
+                                           &enable, flagSize), "enable input")
+            try check(AudioUnitSetProperty(unit, kAudioOutputUnitProperty_EnableIO, kAudioUnitScope_Output, 0,
+                                           &disable, flagSize), "disable output")
+            var device = deviceID
+            try check(AudioUnitSetProperty(unit, kAudioOutputUnitProperty_CurrentDevice, kAudioUnitScope_Global, 0,
+                                           &device, UInt32(MemoryLayout<AudioDeviceID>.size)),
+                      "bind input unit to device \(deviceID)")
+            return unit
+        } catch {
+            AudioComponentInstanceDispose(unit)
+            throw error
+        }
+    }
+
+    private static func streamFormat(_ unit: AudioUnit, scope: AudioUnitScope, element: AudioUnitElement) throws -> AudioStreamBasicDescription {
+        var format = AudioStreamBasicDescription()
+        var size = UInt32(MemoryLayout<AudioStreamBasicDescription>.size)
+        try check(AudioUnitGetProperty(unit, kAudioUnitProperty_StreamFormat, scope, element, &format, &size),
+                  "read device stream format")
+        return format
+    }
+
+    /// Runs on the HAL IO thread: pull the slice out of the unit and queue it.
+    fileprivate func renderInput(
+        flags: UnsafeMutablePointer<AudioUnitRenderActionFlags>,
+        timeStamp: UnsafePointer<AudioTimeStamp>,
+        bus: UInt32,
+        frames: UInt32
+    ) -> OSStatus {
+        guard let unit = inputUnit, let format = captureFormat,
+              frames <= maxFramesPerSlice,
+              let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frames) else {
+            processingQueue.async { [weak self] in self?.droppedSlices += 1 }
+            return kAudioUnitErr_CannotDoInCurrentContext
+        }
+        buffer.frameLength = frames
+        let status = AudioUnitRender(unit, flags, timeStamp, bus, frames, buffer.mutableAudioBufferList)
+        guard status == noErr else {
+            processingQueue.async { [weak self] in self?.droppedSlices += 1 }
+            return status
+        }
+        processingQueue.async { [weak self] in self?.gather(buffer) }
+        return noErr
     }
 
     private func reportStartFailure(_ reason: String) {
@@ -208,18 +309,19 @@ final class AudioCapture {
     }
 
     private func stopRecordingLocked() {
-        guard let audioEngine = audioEngine else {
-            restoreSystemDefaultIfNeeded()
-            return
+        guard inputUnit != nil else { return }
+
+        teardownInputUnit()
+        // Every slice the IO thread queued lands before the file is closed.
+        processingQueue.sync {
+            self.flushBlock()
+            self.flushConverter()
+            if self.droppedSlices > 0 {
+                print("WARNING: \(self.droppedSlices) audio slices dropped — the recording has gaps")
+            }
+            self.audioFile = nil  // dropping the reference finalizes the WAV header
         }
-
-        audioEngine.inputNode.removeTap(onBus: 0)
-        audioEngine.stop()
-
-        self.audioEngine = nil
-        self.audioFile = nil  // dropping the reference flushes/finalizes the WAV header
-
-        restoreSystemDefaultIfNeeded()
+        converter = nil
         print("Recording stopped")
 
         if let recordingURL = recordingURL {
@@ -229,11 +331,44 @@ final class AudioCapture {
         }
     }
 
+    private func teardownInputUnit() {
+        guard let unit = inputUnit else { return }
+        AudioOutputUnitStop(unit)
+        AudioUnitUninitialize(unit)
+        AudioComponentInstanceDispose(unit)
+        inputUnit = nil
+    }
+
     /// Set YAPLESS_DEBUG_SPECTRUM=1 to print what the bars are actually being
     /// fed — the only way to tell "the display is wrong" from "the mic is quiet"
     /// without standing in front of the screen.
     private static let debugSpectrum = ProcessInfo.processInfo.environment["YAPLESS_DEBUG_SPECTRUM"] == "1"
     private var lastSpectrumLog: Date = .distantPast
+
+    private func gather(_ slice: AVAudioPCMBuffer) {
+        if !sawFirstBuffer {
+            sawFirstBuffer = true
+            print("First audio buffer")
+            let handler = onFirstBuffer
+            DispatchQueue.main.async { handler?() }
+        }
+        let blockFrames = AVAudioFrameCount(slice.format.sampleRate / 10)
+        if block == nil {
+            block = AVAudioPCMBuffer(pcmFormat: slice.format, frameCapacity: blockFrames + maxFramesPerSlice)
+        }
+        guard let block = block, let dst = block.floatChannelData?[0], let src = slice.floatChannelData?[0] else {
+            fatalError("could not allocate a \(blockFrames)-frame analysis block")
+        }
+        (dst + Int(block.frameLength)).update(from: src, count: Int(slice.frameLength))
+        block.frameLength += slice.frameLength
+        if block.frameLength >= blockFrames { flushBlock() }
+    }
+
+    private func flushBlock() {
+        guard let full = block, full.frameLength > 0 else { return }
+        block = nil
+        processAudioBuffer(full)
+    }
 
     private func processAudioBuffer(_ buffer: AVAudioPCMBuffer) {
         let level = calculateRMS(buffer: buffer)
@@ -276,23 +411,74 @@ final class AudioCapture {
             self?.onFrequencySpectrum?(spectrum)
         }
 
-        guard let audioFile = audioFile else { return }
-
-        if let convertedBuffer = convertBuffer(buffer, to: recordingFormat) {
-            do {
-                try audioFile.write(from: convertedBuffer)
-            } catch {
-                print("Failed to write audio buffer: \(error)")
-            }
-            appendToTail(convertedBuffer)
-        }
+        guard let converted = convert(buffer, endOfStream: false) else { return }
+        store(converted)
     }
 
+    /// Converter output → the WAV and the caption tail. Processing queue only.
+    private func store(_ converted: AVAudioPCMBuffer) {
+        guard converted.frameLength > 0, let audioFile = audioFile else { return }
+        do {
+            try audioFile.write(from: converted)
+        } catch {
+            print("Failed to write audio buffer: \(error)")
+        }
+        appendToTail(converted)
+    }
+
+    /// The resampler holds a few ms of history; drain it so the end of the
+    /// last word reaches the file.
+    private func flushConverter() {
+        guard let converted = convert(nil, endOfStream: true) else { return }
+        store(converted)
+    }
+
+    /// Device rate → 16k mono through the recording-long converter. `nil`
+    /// with endOfStream drains it.
+    private func convert(_ buffer: AVAudioPCMBuffer?, endOfStream: Bool) -> AVAudioPCMBuffer? {
+        guard let converter = converter else { return nil }
+        let ratio = recordingFormat.sampleRate / converter.inputFormat.sampleRate
+        let inputFrames = Double(buffer?.frameLength ?? 0)
+        // Slack for the samples the resampler was holding from the last call.
+        let capacity = AVAudioFrameCount((inputFrames * ratio).rounded(.up)) + 64
+        guard let output = AVAudioPCMBuffer(pcmFormat: recordingFormat, frameCapacity: capacity) else {
+            print("Audio conversion error: could not allocate \(capacity)-frame buffer")
+            return nil
+        }
+
+        var pending = buffer
+        var error: NSError?
+        let status = converter.convert(to: output, error: &error) { _, outStatus in
+            if let next = pending {
+                pending = nil
+                outStatus.pointee = .haveData
+                return next
+            }
+            outStatus.pointee = endOfStream ? .endOfStream : .noDataNow
+            return nil
+        }
+        if status == .error {
+            print("Audio conversion error: \(error.map { "\($0)" } ?? "unknown")")
+            return nil
+        }
+        return output
+    }
+
+    /// Captions feed whisper a 16-bit WAV; the recording path is Float32.
     private func appendToTail(_ buffer: AVAudioPCMBuffer) {
-        guard let data = buffer.int16ChannelData?[0] else { return }
+        guard let data = buffer.floatChannelData?[0] else { return }
         let count = Int(buffer.frameLength)
+        var scaled = [Float](repeating: 0, count: count)
+        var scale: Float = 32767
+        var low: Float = -32768
+        var high: Float = 32767
+        vDSP_vsmul(data, 1, &scale, &scaled, 1, vDSP_Length(count))
+        vDSP_vclip(scaled, 1, &low, &high, &scaled, 1, vDSP_Length(count))
+        var samples = [Int16](repeating: 0, count: count)
+        vDSP_vfixr16(scaled, 1, &samples, 1, vDSP_Length(count))
+
         tailLock.lock()
-        tailSamples.append(contentsOf: UnsafeBufferPointer(start: data, count: count))
+        tailSamples.append(contentsOf: samples)
         if tailSamples.count > tailMaxSamples {
             tailSamples.removeFirst(tailSamples.count - tailMaxSamples)
         }
@@ -476,46 +662,6 @@ final class AudioCapture {
             default: return "other"
             }
         }
-    }
-
-    private func restoreSystemDefaultIfNeeded() {
-        guard let saved = savedSystemDefaultDeviceID else { return }
-        savedSystemDefaultDeviceID = nil
-        if Self.setDefaultInputDevice(saved) {
-            let name = Self.stringProperty(saved, kAudioObjectPropertyName) ?? "<unnamed>"
-            print("Restored system default input to: \(name)")
-        } else {
-            print("WARNING: failed to restore system default input device")
-        }
-    }
-
-    static func currentDefaultInputDeviceID() -> AudioDeviceID? {
-        var deviceID = AudioDeviceID(0)
-        var size = UInt32(MemoryLayout<AudioDeviceID>.size)
-        var addr = AudioObjectPropertyAddress(
-            mSelector: kAudioHardwarePropertyDefaultInputDevice,
-            mScope: kAudioObjectPropertyScopeGlobal,
-            mElement: kAudioObjectPropertyElementMain
-        )
-        let status = AudioObjectGetPropertyData(
-            AudioObjectID(kAudioObjectSystemObject), &addr, 0, nil, &size, &deviceID
-        )
-        return (status == noErr && deviceID != 0) ? deviceID : nil
-    }
-
-    @discardableResult
-    static func setDefaultInputDevice(_ id: AudioDeviceID) -> Bool {
-        var devID = id
-        var addr = AudioObjectPropertyAddress(
-            mSelector: kAudioHardwarePropertyDefaultInputDevice,
-            mScope: kAudioObjectPropertyScopeGlobal,
-            mElement: kAudioObjectPropertyElementMain
-        )
-        let status = AudioObjectSetPropertyData(
-            AudioObjectID(kAudioObjectSystemObject), &addr, 0, nil,
-            UInt32(MemoryLayout<AudioDeviceID>.size), &devID
-        )
-        return status == noErr
     }
 
     static func defaultInputDeviceInfo() -> InputDeviceInfo? {
@@ -790,35 +936,18 @@ final class AudioCapture {
         let buffers = UnsafeMutableAudioBufferListPointer(bufferList)
         return buffers.reduce(UInt32(0)) { $0 + $1.mNumberChannels }
     }
+}
 
-    private func convertBuffer(_ buffer: AVAudioPCMBuffer, to format: AVAudioFormat) -> AVAudioPCMBuffer? {
-        guard let converter = AVAudioConverter(from: buffer.format, to: format) else {
-            return nil
-        }
-
-        let ratio = format.sampleRate / buffer.format.sampleRate
-        let outputFrameCapacity = AVAudioFrameCount(Double(buffer.frameLength) * ratio)
-
-        guard let outputBuffer = AVAudioPCMBuffer(
-            pcmFormat: format,
-            frameCapacity: outputFrameCapacity
-        ) else {
-            return nil
-        }
-
-        var error: NSError?
-        let inputBlock: AVAudioConverterInputBlock = { _, outStatus in
-            outStatus.pointee = .haveData
-            return buffer
-        }
-
-        converter.convert(to: outputBuffer, error: &error, withInputFrom: inputBlock)
-
-        if let error = error {
-            print("Audio conversion error: \(error)")
-            return nil
-        }
-
-        return outputBuffer
-    }
+/// HAL input callback. A C function pointer can't capture, so the capture
+/// object rides in the refCon.
+private func audioCaptureInputProc(
+    refCon: UnsafeMutableRawPointer,
+    flags: UnsafeMutablePointer<AudioUnitRenderActionFlags>,
+    timeStamp: UnsafePointer<AudioTimeStamp>,
+    bus: UInt32,
+    frames: UInt32,
+    data: UnsafeMutablePointer<AudioBufferList>?
+) -> OSStatus {
+    let capture = Unmanaged<AudioCapture>.fromOpaque(refCon).takeUnretainedValue()
+    return capture.renderInput(flags: flags, timeStamp: timeStamp, bus: bus, frames: frames)
 }

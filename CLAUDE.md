@@ -9,7 +9,7 @@ Sources/VoiceToText/
 ├── main.swift              # cli entry point (ArgumentParser)
 ├── AppController.swift     # orchestrates recording → transcription → paste
 ├── Audio/
-│   └── AudioCapture.swift  # AVAudioEngine recording, FFT spectrum
+│   └── AudioCapture.swift  # AUHAL capture bound to a device ID, FFT spectrum
 ├── Whisper/
 │   └── WhisperEngine.swift # groq api, local whisper backends, retry logic
 ├── OutputHandler.swift     # clipboard, paste simulation, notifications
@@ -66,10 +66,35 @@ all models are **whisper-large / v3** (not turbo), chosen for accuracy:
 | fireworks | `whisper-v3` | `audio-prod.us-virginia-1.direct.fireworks.ai/v1/audio/transcriptions` | OpenAI multipart | `fireworksApiKey` / `FIREWORKS_API_KEY` |
 | fal | wizper `version:"3"` | `fal.run/fal-ai/wizper` | JSON, `audio_url` data URI, `Authorization: Key` | `falApiKey` / `FAL_KEY` |
 | replicate | `incredibly-fast-whisper` | `api.replicate.com/v1/predictions` | create+poll, `audio` data URI | `replicateApiToken` / `REPLICATE_API_TOKEN` |
+| elevenlabs | Scribe `scribe_v2` | `api.elevenlabs.io/v1/speech-to-text` | multipart, `xi-api-key`, `no_verbatim=true`, `vocabulary` → repeated `keyterms` | `elevenLabsApiKey` / `ELEVENLABS_API_KEY` |
 
 groq/deepinfra/fireworks share `transcribeOpenAICompatible(endpoint:apiKey:model:)` — they differ only by base URL, key, and model name. fal & replicate upload audio inline as base64 `data:` URIs (no separate upload step).
 
-override the config backend per-run with `--backend auto|groq|deepinfra|fireworks|fal|replicate|local|parakeet`.
+override the config backend per-run with `--backend auto|groq|deepinfra|fireworks|fal|replicate|elevenlabs|local|parakeet`.
+
+## model comparison (bench/asr)
+
+`bench/asr/` holds a re-runnable WER/speed/RAM bench: 6 English dictation-style clips full of jargon ("2027-queue", "cotal", "groq", "AVAudioConverter", money/time) + 2 Russian, ElevenLabs TTS, each in three conditions — clean, pink noise at ~1dB SNR, and a cheap-mic chain (300-3400Hz, -20dB, 8kHz, 16kbps mp3). `gen.sh` builds it, `bench.py` runs engines (wall includes process start + model load, i.e. what yapless pays), `score.py` scores with whisper's normalizer. Measured 2026-10-13, M1 Pro 16GB, load avg 20-60. Pooled English WER % (clean / noisy / cheap), median wall per clip, max RSS:
+
+| engine | clean | noisy | cheap | wall | RSS |
+|---|---|---|---|---|---|
+| whisper.cpp base (old local default) | 6.6 | **15.8** | 8.3 | 0.95s | 0.37GB |
+| whisper.cpp small | 5.7 | 11.8 | 6.1 | 1.5s | 0.83GB |
+| whisper.cpp large-v3-turbo q5_0 | 4.8 | 5.3 | 4.8 | 2-4s (10s cold under load) | 0.81GB |
+| whisper.cpp large-v3-turbo f16 | 4.8 | 5.7 | 4.8 | 9.3s | 1.84GB |
+| parakeet-tdt-0.6b-v3 q8 (`parakeet-cli`, whisper.cpp 1.9.5) | 7.0 | 7.5 | 9.2 | 1.1s | 0.73GB |
+| Apple SpeechAnalyzer (`SpeechTranscriber`, in-OS) | 8.3 | 11.0 | 6.1 | 0.67s | ~0 (system daemon) |
+| groq whisper-large-v3 (cloud) | 5.7 | 7.0 | 5.3 | 0.55s | — |
+| groq whisper-large-v3-turbo | 5.7 | 6.1 | 5.3 | 0.38s | — |
+| **ElevenLabs Scribe v2** | **4.4** | **4.8** | **3.1** | 0.96s | — |
+
+~240 words per condition, so ±1 word ≈ ±0.4 points; the base→turbo noisy gap is real, the groq/turbo/scribe spread is a few words. Russian: everything but base/apple scored 2-4%.
+
+What it changed: local `model` is now `large-v3-turbo-q5_0` in the operator's config (base was what actually got pasted — with `raceLocal` it won the race), live captions keep `base` via `whisper.captionModel` because turbo can't finish inside the 1s pass. Scribe v2 added as a backend: best on every condition, and `keyterms` fixed "cotal"/"groq" even at 1dB SNR where every whisper wrote "total"/"grok". Without `no_verbatim` it transcribes every "uh" and false start — wrong for dictation.
+
+Rejected: parakeet v3 — fast but worse than turbo here, no vocabulary biasing, mangles numbers ("$4,250" → "$450"). Apple SpeechAnalyzer — zero load cost but the least accurate, no Russian (`SpeechTranscriber` has no ru-RU; only `DictationTranscriber` does). Qwen3-ASR/Canary/Granite rank well on the Open ASR leaderboard but have no ggml/Metal CLI path, so they'd pay a Python/MLX runtime start per run.
+
+Note `whisper-cli` defaults to `-l en` and yapless passes no `-l` unless `whisper.language` is set, so local Russian dictation is decoded as English. `-l auto` costs a whole extra encoder pass (~1.2s on turbo).
 
 ## racing local against cloud
 
@@ -81,10 +106,10 @@ Local is ~10x slower than groq, so on a healthy network the cloud always wins an
 
 ## live captions
 
-`whisper.liveCaptions` (default **false**) shows closed captions while recording: every 1.0s the last ~12s of audio is re-transcribed with local whisper-cli and the result feeds a fixed-size caption bar at the bottom of the screen (`CaptionWindow`, separate from the animation overlay so it works with the pill too). **Preview only** — the pasted text always comes from the full transcription at stop.
+`whisper.liveCaptions` (default **false**) shows closed captions while recording: every 1.0s the last ~12s of audio is re-transcribed with local whisper-cli using `whisper.captionModel` (default `base`, not `model`) and the result feeds a fixed-size caption bar at the bottom of the screen (`CaptionWindow`, separate from the animation overlay so it works with the pill too). **Preview only** — the pasted text always comes from the full transcription at stop.
 
 Three pieces:
-- `AudioCapture.tailWAVData(seconds:)` — in-memory ring buffer of the converted 16k samples. The wav on disk can't be read mid-write (header says 0 bytes until finalize), so captions read from here.
+- `AudioCapture.tailWAVData(seconds:)` — in-memory ring buffer of the converted 16k samples (Float32 → Int16 on append; until the AUHAL port it read `int16ChannelData` off a Float32 buffer, which is always nil, so captions never got audio). The wav on disk can't be read mid-write (header says 0 bytes until finalize), so captions read from here.
 - `LiveCaptioner` — timer on a utility queue, one whisper-cli process per pass, skips a tick if the previous is still running. Requires whisper-cli; whisperKit is too slow to start per-pass, so no binary → captions silently off (logged).
 - **LocalAgreement-2** in `LiveCaptioner.merge`: a word is only displayed once two consecutive passes agree on it, and the committed text is append-only — the caption never rewrites itself, it lags ~1 pass instead. The **pending tail is shown too, dimmed** — words appear near-instantly in gray and turn white once confirmed; only gray text may shift. Confirmed-word latency ≈ interval + agreement pass + ~0.5s transcribe ≈ 1.5-2.5s. The alignment tolerates up to 6 mangled words at the window's leading edge (`skip`) and up to 3 committed words that a later pass drops (`drop`) — without the drop tolerance one vanished "yes," stalled captions for the rest of the recording (measured on a real 64s dictation: 27 words committed without it, 64 with, append-only both ways).
 
@@ -143,19 +168,27 @@ animation `AnimationState` enum: `.recording` / `.processing` / `.complete` / `.
 ## gotchas
 
 - event tap requires accessibility permission
-- **mic permission**: `AVCaptureDevice.requestAccess` is called from `AppController.startRecording`. CLI binaries get silent denial unless granted in System Settings → Privacy & Security → Microphone. without it, AVAudioEngine returns zero buffers with no error.
-- **AVAudioEngine + device binding**: `AVAudioEngine.inputNode` is bound to the **system default input** at engine init and there is no supported way to repoint it afterwards without disturbing the tap. so `--input` works by swapping `kAudioHardwarePropertyDefaultInputDevice` *before* creating the engine (`AudioCapture.swift:69-103`), then restoring it in `stopRecording` (`restoreSystemDefaultIfNeeded`). consequences: the swap is global (every app sees it) and **not crash-safe** — there's no atexit/signal handler, so a `kill -9` mid-recording leaves the user's default input changed. we do NOT use `kAudioOutputUnitProperty_CurrentDevice` anywhere despite what this file used to claim.
+- **mic permission**: `AVCaptureDevice.requestAccess` is called from `AppController.startRecording`. CLI binaries get silent denial unless granted in System Settings → Privacy & Security → Microphone. without it, CoreAudio still delivers buffers — all zeros, no error. agent shells under tmux are not authorized (status notDetermined, yapless refuses); a cmux workspace is, so real-audio tests run there (`cmux new-workspace --focus false --command ...`).
+- **device binding — why AUHAL, not AVAudioEngine**: capture is a raw `kAudioUnitSubType_HALOutput` unit, input bus 1 enabled, output bus 0 disabled, `kAudioOutputUnitProperty_CurrentDevice` set to the chosen device's ID. the system default input is **never touched**. AVAudioEngine can't do this: on this macOS its input node captures through a private `CADefaultDeviceAggregate` built from the **system default input** + default output, and setting `CurrentDevice` on `inputNode.audioUnit` before reading the format is silently overridden — measured: it bound an aggregate containing the bluetooth default (WH-1000XM6) instead of the requested mic, and delivered zero buffers. so the old code swapped the global default before creating the engine and restored it on stop: every app saw it, a `kill -9` left it swapped, two concurrent runs could "restore" each other's swap, and it cost 300-1350ms per start on a bluetooth default.
+- AUHAL won't resample on the input side: the client format is mono Float32 at the device rate; one `AVAudioConverter` per recording does → 16k (one per buffer would reset the resampler's filter state at every ~10ms slice). the IO callback only renders and queues; levels/FFT/file/tail run on `processingQueue`, which `stop` drains (plus a converter flush) before dropping the `AVAudioFile`.
+- slices are ~10ms (≈94/s); `gather` collects them back into ~100ms blocks before `processAudioBuffer`, because the silence guard's per-buffer RMS (`voicedSeconds`), the level/spectrum callbacks and the stats were all tuned on the engine's ~100ms buffers — 10ms windows would count short noise bursts as voice. `First audio buffer` is logged per slice, not per block. Slices the IO thread can't render are counted and reported at stop ("audio slices dropped"), never silently lost.
 ## cold start
 
-~330ms from exec to first audio buffer (was ~545ms). Measured, not estimated — timestamp each log line relative to spawn.
+~380-430ms median from exec to first audio buffer under load avg 20-95, interleaved 8x against the older builds: AVAudioEngine + swap 827 (no swap) / 927 (swap); AUHAL alone 534 / 533; AUHAL + the reorder below 432 / 378. Earlier idle-machine figure was ~330ms. Real-run slow tail before this (detached.log): 0.6-2.0s in-process, the slowest being default-input swaps away from bluetooth headphones. Measured, not estimated — timestamp each log line relative to spawn.
 
-Where it goes now: ~47ms process + framework + config, ~88ms first touch of AVFoundation (`AudioCapture.init`), ~87ms `AVAudioEngine()` + `inputNode.outputFormat`, ~78ms file + tap + `engine.start()`. The overlay (~100ms of SwiftUI) is fully hidden behind the audio work.
+Where it goes now: ~47ms process + framework + config, ~88ms first touch of AVFoundation (`AudioCapture.init`), ~45ms AUHAL create + bind + format read, ~145ms file + `AudioUnitInitialize` + `AudioOutputUnitStart`, ~10ms to the first slice (the engine took ~100ms to its first 100ms buffer). Moving WAV creation off the critical path (onto the processing queue) was measured and gained nothing — not worth the async failure path. The overlay (~100ms of SwiftUI) is fully hidden behind the audio work.
 
-What was removed: `WhisperEngine` is `lazy` (credential + local-binary discovery happens after the recording, not before it); the resolved input device is cached in `~/.local/share/yapless/input-device-cache.json` and validated with ONE property read instead of ~85; the fixed 250ms post-swap sleep is 50ms with a 2ms poll.
+What was removed: `WhisperEngine` is `lazy` (credential + local-binary discovery happens after the recording, not before it); the resolved input device is cached in `~/.local/share/yapless/input-device-cache.json` and validated with ONE property read instead of ~85; the default-input swap (and its settle sleep) is gone entirely.
+
+Startup order is mic-first: `MicAuthorization.prefetch()` (TCC XPC, 25-40ms) runs on a background queue from the top of `run()`, overlapping device resolution's CoreAudio first touch (~100-360ms — this, not AVFoundation, is the "config → Input device (cached)" gap). `NSApplication.setActivationPolicy(.accessory)` (60-145ms first touch of AppKit) happens **after** the capture is dispatched, as do `frontmostApplication` and the cursor push. The log clock is `strftime`, not `DateFormatter` (ICU load, 5-38ms on the first line). The start sound plays on `onFirstBuffer`, so the cue means the mic is live — a slow start is late, never lossy. Measured and NOT worth it: dyld/framework load (the whole framework set is ~1ms over Foundation — the cost is first *use*), dropping SwiftUI, `exec` in the raycast scripts (≤2ms). `--detach` costs ~30-75ms (dyld twice); it spawns with `POSIX_SPAWN_CLOEXEC_DEFAULT` so stray launcher fds don't ride along with the recording.
 
 `startRecordingInBackground` runs CoreAudio setup off the main thread while the overlay draws. A `controlQueue` serialises start/stop, and the completion hops back to main — everything downstream touches UI.
 
-**Sub-100ms is not reachable this way.** ~165ms of that is AVAudioEngine construction and start, i.e. framework code, paid per process. Getting under 100ms means a resident warm process holding an initialised engine — a daemon, which is what the README promises yapless isn't.
+**Launch priority.** A hotkey launcher (Raycast) is a background app, and a process it spawns can inherit darwin background scheduling. Measured under load (loadavg ~30-70): `taskpolicy -b` start took ~3.0s to first buffer vs ~1.1s normal. `raiseLaunchPriority()` (Log.swift) clears `PRIO_DARWIN_PROCESS` and sets user-interactive QoS first thing in `run()`; `--detach` spawns the child with `QOS_CLASS_USER_INTERACTIVE`; `controlQueue` is `.userInteractive`. After the fix a background launch measured ~1.06s. The pre-`main` exec under background policy (~0.5s observed) is outside our reach. A background launch is logged ("Launched with background priority — cleared").
+
+**Every log line is timestamped**: `HH:mm:ss.SSS +<ms since launch>`. `print` is shadowed module-wide in `Log.swift`; launch = the process's kernel start time, or the parent's via `YAPLESS_LAUNCH_TIME` across `--detach`. `First audio buffer` marks when the mic is actually live — read slow starts out of `detached.log` instead of reproducing them.
+
+**Sub-100ms is not reachable this way.** ~190ms of that is AUHAL setup and start plus AVFoundation load, i.e. framework code, paid per process. Getting under 100ms means a resident warm process holding an initialised engine — a daemon, which is what the README promises yapless isn't.
 
 ## input device selection
 

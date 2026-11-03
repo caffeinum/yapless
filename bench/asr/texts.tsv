@@ -1,0 +1,8 @@
+en1	Okay so the deploy failed again on the queue worker. Can you check the fly logs for the 2027-queue app, find the job ID that timed out, and rerun it against staging before we push the canary image?
+en2	I think the bug is in AudioCapture dot swift, the converter gets recreated for every buffer, so the resampler loses its filter state. Let's keep one AVAudioConverter for the whole recording and flush it at the end.
+en3	Send a DM to the voice agent on the cotal mesh and tell it the groq key is out of credit. Then open a beads task assigned to aleks asking for a new API key, priority two.
+en4	Honestly I'm not sure we need a daemon here. The cold start is about four hundred milliseconds now, which is fine, but when the machine is under heavy load it can still take a second or more before the microphone is live.
+en5	Let's compare whisper large v3 turbo against parakeet TDT zero point six B version three, measure the word error rate on noisy audio, and check how much RAM each one needs on an M1 Pro with sixteen gigabytes.
+en6	Remind me tomorrow at nine thirty to call Marcus about the Q3 invoice, it was 4,250 dollars and they still haven't paid. Also book a table for two at seven pm on Friday.
+ru1	Слушай, давай проверим логи на сервере, там опять падает воркер очереди. Перезапусти задачу на стейджинге и напиши мне, когда всё заработает.
+ru2	Мне кажется, проблема в том, что микрофон открывается слишком долго, когда компьютер сильно загружен. Нужно измерить время запуска и понять, где именно теряются секунды.

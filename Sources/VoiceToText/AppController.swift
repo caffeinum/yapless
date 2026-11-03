@@ -80,7 +80,7 @@ final class AppController {
     func startRecording() {
         guard !isRecording else { return }
 
-        let status = AVCaptureDevice.authorizationStatus(for: .audio)
+        let status = MicAuthorization.status
         print("Mic auth status: \(Self.describe(status))")
 
         switch status {
@@ -125,7 +125,7 @@ final class AppController {
 
     /// Headless mode: record for a fixed duration, no overlay, no keyboard capture. For testing or CLI use.
     func startHeadlessRecording(duration: Double) {
-        let status = AVCaptureDevice.authorizationStatus(for: .audio)
+        let status = MicAuthorization.status
         guard status == .authorized || status == .notDetermined else {
             failPermission()
             return
@@ -160,23 +160,27 @@ final class AppController {
     private func beginRecording() {
         isRecording = true
 
-        previousApp = NSWorkspace.shared.frontmostApplication
-        if config.animation.style != .dot {
-            NSCursor.pointingHand.push()
-        }
-
         let timestamp = ISO8601DateFormatter().string(from: Date())
         let safeTimestamp = timestamp.replacingOccurrences(of: ":", with: "-")
         recordingTimestamp = safeTimestamp
 
-        // Mic first, UI second: the engine takes ~190ms of CoreAudio setup and
-        // the overlay ~100ms of SwiftUI, and neither needs the other. Starting
-        // the capture first means words spoken at the very beginning land.
+        // Mic first, everything else after: CoreAudio setup and AppKit's first
+        // touch (~60-145ms for NSApplication alone) don't need each other, so
+        // the capture is already in flight while the app and overlay come up.
         audioCapture.startRecordingInBackground { [weak self] audioURL in
             self?.processRecording(at: audioURL)
         }
 
-        Self.play(config.output.startSound, label: "startSound")
+        // The cue means "talk now", so it waits for the mic to really be live.
+        // On a slow start it comes late instead of lying.
+        let startSound = config.output.startSound
+        audioCapture.onFirstBuffer = { Self.play(startSound, label: "startSound") }
+
+        NSApplication.shared.setActivationPolicy(.accessory)
+        previousApp = NSWorkspace.shared.frontmostApplication
+        if config.animation.style != .dot {
+            NSCursor.pointingHand.push()
+        }
         showOverlay()
         startCaptionsIfEnabled()
     }
@@ -190,7 +194,7 @@ final class AppController {
             print("liveCaptions enabled but no whisper-cli found — captions off")
             return
         }
-        let model = WhisperEngine.whisperCppModelPath(model: config.whisper.model)
+        let model = WhisperEngine.whisperCppModelPath(model: config.whisper.captionModel)
         guard FileManager.default.fileExists(atPath: model) else {
             print("liveCaptions enabled but no model at \(model) — captions off")
             return

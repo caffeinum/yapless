@@ -9,6 +9,7 @@ enum WhisperVariant {
     case fireworks
     case fal
     case replicate
+    case elevenLabs
 }
 
 /// Whisper transcription engine - supports multiple backends
@@ -24,6 +25,7 @@ final class WhisperEngine {
     private var fireworksToken: String?
     private var falToken: String?
     private var replicateToken: String?
+    private var elevenLabsKey: String?
 
     enum WhisperError: Error, LocalizedError {
         case binaryNotFound
@@ -63,6 +65,7 @@ final class WhisperEngine {
         fireworksToken = config.fireworksApiKey ?? env["FIREWORKS_API_KEY"]
         falToken = config.falApiKey ?? env["FAL_KEY"] ?? env["FAL_API_KEY"]
         replicateToken = config.replicateApiToken ?? env["REPLICATE_API_TOKEN"]
+        elevenLabsKey = config.elevenLabsApiKey ?? env["ELEVENLABS_API_KEY"]
 
         // Build an ordered fallback chain. Local whisper comes FIRST: measured
         // on this class of machine it beats every cloud provider on wall clock
@@ -79,6 +82,7 @@ final class WhisperEngine {
             if fireworksToken != nil { providers.append(.fireworks) }
             if replicateToken != nil { providers.append(.replicate) }
             if falToken != nil { providers.append(.fal) }
+            if elevenLabsKey != nil { providers.append(.elevenLabs) }
 
         case .groq:
             appendCloudOrWarn(.groq, present: groqApiKey != nil, envHint: "GROQ_API_KEY")
@@ -90,6 +94,8 @@ final class WhisperEngine {
             appendCloudOrWarn(.fal, present: falToken != nil, envHint: "FAL_KEY")
         case .replicate:
             appendCloudOrWarn(.replicate, present: replicateToken != nil, envHint: "REPLICATE_API_TOKEN")
+        case .elevenlabs:
+            appendCloudOrWarn(.elevenLabs, present: elevenLabsKey != nil, envHint: "ELEVENLABS_API_KEY")
 
         case .local, .openai:
             // OpenAI API isn't wired up yet; treat as local-only.
@@ -110,7 +116,7 @@ final class WhisperEngine {
     /// Cloud variants hit the network, so they get retried with backoff.
     private func isCloudVariant(_ variant: WhisperVariant) -> Bool {
         switch variant {
-        case .groq, .deepInfra, .fireworks, .fal, .replicate:
+        case .groq, .deepInfra, .fireworks, .fal, .replicate, .elevenLabs:
             return true
         case .whisperCpp, .whisperKit, .parakeet:
             return false
@@ -311,6 +317,8 @@ final class WhisperEngine {
                             text = try self.transcribeWithFal(audioPath: audioURL.path)
                         case .replicate:
                             text = try self.transcribeWithReplicate(audioPath: audioURL.path)
+                        case .elevenLabs:
+                            text = try self.transcribeWithElevenLabs(audioPath: audioURL.path)
                         default:
                             text = try self.transcribeLocally(variant: variant, audioPath: audioURL.path)
                         }
@@ -466,6 +474,78 @@ final class WhisperEngine {
         }
 
         return result?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    }
+
+    // MARK: - ElevenLabs Scribe
+
+    /// Scribe v2: the most accurate backend measured here (4.4 / 4.8 / 3.1% WER
+    /// clean / ~1dB-SNR noise / band-limited low-gain, vs groq large-v3 5.7 /
+    /// 7.0 / 5.3), ~1s wall. `no_verbatim` matters for dictation: without it
+    /// Scribe transcribes every "uh" and false start. `vocabulary` goes in as
+    /// keyterms, which fixed "cotal"/"groq" even in heavy noise; the freeform
+    /// `prompt` has no equivalent and is ignored.
+    private func transcribeWithElevenLabs(audioPath: String) throws -> String {
+        guard let apiKey = elevenLabsKey else { throw WhisperError.apiKeyMissing }
+        let audioData = try Data(contentsOf: URL(fileURLWithPath: audioPath))
+        let boundary = UUID().uuidString
+
+        var request = URLRequest(url: URL(string: "https://api.elevenlabs.io/v1/speech-to-text")!)
+        request.httpMethod = "POST"
+        request.setValue(apiKey, forHTTPHeaderField: "xi-api-key")
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+
+        var fields: [(String, String)] = [
+            ("model_id", "scribe_v2"),
+            ("no_verbatim", "true"),
+            ("tag_audio_events", "false"),
+        ]
+        if let language = config.language { fields.append(("language_code", language)) }
+        for term in config.vocabulary where !term.trimmingCharacters(in: .whitespaces).isEmpty {
+            fields.append(("keyterms", term))
+        }
+
+        var body = Data()
+        for (name, value) in fields {
+            body.append("--\(boundary)\r\nContent-Disposition: form-data; name=\"\(name)\"\r\n\r\n\(value)\r\n".data(using: .utf8)!)
+        }
+        body.append("--\(boundary)\r\nContent-Disposition: form-data; name=\"file\"; filename=\"audio.wav\"\r\nContent-Type: \(mimeType(forPath: audioPath))\r\n\r\n".data(using: .utf8)!)
+        body.append(audioData)
+        body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
+        request.httpBody = body
+
+        var json: [String: Any]?
+        var requestError: Error?
+        var httpStatus = 0
+        let semaphore = DispatchSemaphore(value: 0)
+        URLSession.shared.dataTask(with: request) { data, response, error in
+            defer { semaphore.signal() }
+            if let error = error { requestError = error; return }
+            httpStatus = (response as? HTTPURLResponse)?.statusCode ?? 0
+            guard let data = data, let parsed = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                let raw = data.flatMap { String(data: $0, encoding: .utf8) } ?? "no body"
+                requestError = WhisperError.transcriptionFailed("ElevenLabs HTTP \(httpStatus): \(raw)")
+                return
+            }
+            json = parsed
+        }.resume()
+        semaphore.wait()
+
+        if let error = requestError { throw error }
+        guard let json = json else { throw WhisperError.transcriptionFailed("Empty ElevenLabs response (HTTP \(httpStatus))") }
+
+        if httpStatus >= 400 {
+            let detail = json["detail"] as? [String: Any]
+            let message = "ElevenLabs HTTP \(httpStatus) — \(detail?["message"] as? String ?? "\(json)")"
+            // Bad key, no credit, bad request: retrying cannot fix those.
+            if [400, 401, 402, 403, 404, 422].contains(httpStatus) {
+                throw WhisperError.permanentFailure(message)
+            }
+            throw WhisperError.transcriptionFailed(message)
+        }
+        guard let text = json["text"] as? String else {
+            throw WhisperError.transcriptionFailed("ElevenLabs response has no text: \(json)")
+        }
+        return text.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     // MARK: - Replicate API
@@ -712,7 +792,7 @@ final class WhisperEngine {
                 "--model", config.model
             ] + (config.language.map { ["--language", $0] } ?? [])
 
-        case .groq, .deepInfra, .fireworks, .fal, .replicate:
+        case .groq, .deepInfra, .fireworks, .fal, .replicate, .elevenLabs:
             fatalError("Cloud variant routed to transcribeLocally")
         }
 
