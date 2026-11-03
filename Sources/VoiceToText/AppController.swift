@@ -13,6 +13,8 @@ final class AppController {
     private var overlayWindow: OverlayWindow?
     private var captioner: LiveCaptioner?
     private var captionWindow: CaptionWindow?
+    private var streaming: StreamingDictation?
+    private var liveInsertion: LiveInsertionSession?
     private var previousApp: NSRunningApplication?
 
     private var isRecording = false
@@ -71,6 +73,9 @@ final class AppController {
         }
         audioCapture.onFrequencySpectrum = { [weak self] bands in
             self?.overlayWindow?.updateSpectrum(bands)
+        }
+        audioCapture.onConvertedBuffer = { [weak self] buffer in
+            self?.streaming?.append(buffer)
         }
         audioCapture.onStartFailure = { [weak self] reason in
             self?.failRecording(reason: reason)
@@ -161,6 +166,9 @@ final class AppController {
         isRecording = true
 
         previousApp = NSWorkspace.shared.frontmostApplication
+        // Before the overlay exists: the field to type into is whatever the
+        // user was in when they started.
+        startLiveInsertIfEnabled()
         if config.animation.style != .dot {
             NSCursor.pointingHand.push()
         }
@@ -178,7 +186,37 @@ final class AppController {
 
         Self.play(config.output.startSound, label: "startSound")
         showOverlay()
-        startCaptionsIfEnabled()
+        if streaming == nil { startCaptionsIfEnabled() }
+    }
+
+    /// Streaming ASR + typing confirmed words into the focused field. Without
+    /// an AX-trusted focused field the stream still runs (captions + a better
+    /// final), and the result is pasted at the end as usual.
+    private func startLiveInsertIfEnabled() {
+        guard config.output.liveInsert else { return }
+        let dictation: StreamingDictation
+        do {
+            dictation = try StreamingDictation(modelName: config.output.liveModel)
+        } catch {
+            print("liveInsert off: \(error.localizedDescription)")
+            return
+        }
+
+        if let target = FocusedTarget.capture() {
+            liveInsertion = LiveInsertionSession(target: target)
+            print("live: target \(target.bundleID ?? "pid \(target.pid)"), inserter \(liveInsertion?.label ?? "none")")
+        } else {
+            print("live: no focused element (accessibility not granted, or nothing focused) — will paste at the end")
+        }
+
+        let window = CaptionWindow()
+        dictation.onUpdate = { committed, tentative in
+            window.show(stable: committed.joined(separator: " "), tentative: tentative)
+        }
+        dictation.onCommit = { [weak self] words in self?.liveInsertion?.commit(words) }
+        dictation.start()
+        captionWindow = window
+        streaming = dictation
     }
 
     /// Live captions: preview-only, from the same audio the real transcription
@@ -245,7 +283,10 @@ final class AppController {
         overlayWindow?.onCancelRequested = { [weak self] in
             self?.cancelTranscription()
         }
-        overlayWindow?.showRecordingState()
+        overlayWindow?.showRecordingState(activate: streaming == nil)
+        if let live = liveInsertion {
+            overlayWindow?.setSinkLabel("live: \(live.label)")
+        }
 
         if let sink = config.output.command, !sink.isEmpty {
             overlayWindow?.setSinkLabel(sink)
@@ -311,6 +352,8 @@ final class AppController {
         captioner = nil
         captionWindow?.close()
         captionWindow = nil
+        streaming?.cancel()
+        streaming = nil
 
         playErrorSound()
         overlayWindow?.setMicLabel("recording failed — \(reason)")
@@ -396,6 +439,30 @@ final class AppController {
         overlayWindow?.showProcessingState()
         playProcessingSound()
 
+        // Streaming already decoded everything but the last ~second; its final
+        // is the transcript. The batch engine only runs if streaming failed.
+        if let dictation = streaming {
+            streaming = nil
+            dictation.finish { [weak self] result in
+                switch result {
+                case .success(let text) where !text.isEmpty:
+                    print("Transcribed via live stream")
+                    self?.saveHistoryIfEnabled(text: text, audioURL: audioURL)
+                    self?.handleTranscriptionResult(text)
+                case .success:
+                    print("live: stream produced no text — falling back to batch transcription")
+                    self?.transcribeBatch(audioURL: audioURL)
+                case .failure(let error):
+                    print("live: stream failed (\(error.localizedDescription)) — falling back to batch transcription")
+                    self?.transcribeBatch(audioURL: audioURL)
+                }
+            }
+            return
+        }
+        transcribeBatch(audioURL: audioURL)
+    }
+
+    private func transcribeBatch(audioURL: URL) {
         whisperEngine.transcribe(audioURL: audioURL) { [weak self] result in
             DispatchQueue.main.async {
                 switch result {
@@ -440,10 +507,22 @@ final class AppController {
             app.activate(options: [])
         }
 
+        guard let live = liveInsertion else { return deliver(text, alreadyInserted: false) }
+        liveInsertion = nil
+        live.finish(final: text) { [weak self] handled in
+            DispatchQueue.main.async {
+                print(handled ? "live: field reconciled with the final transcript" : "live: nothing typed live — pasting")
+                self?.deliver(text, alreadyInserted: handled)
+            }
+        }
+    }
+
+    private func deliver(_ text: String, alreadyInserted: Bool) {
         // Small delay to let the app activate
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
             guard let self = self else { return }
-            self.outputHandler.handle(text: text, pressEnter: self.shouldPressEnterAfterPaste) {
+            self.outputHandler.handle(text: text, pressEnter: self.shouldPressEnterAfterPaste,
+                                      alreadyInserted: alreadyInserted) {
                 self.hideOverlay()
 
                 // Exit after completion

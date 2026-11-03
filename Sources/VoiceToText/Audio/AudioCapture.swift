@@ -13,6 +13,8 @@ final class AudioCapture {
     /// return, leaving the overlay up over a mic that wasn't running and no
     /// sound to say so — a failure that looked exactly like listening.
     var onStartFailure: ((String) -> Void)?
+    /// Every converted 16k mono buffer, on the audio thread. Feeds streaming ASR.
+    var onConvertedBuffer: ((AVAudioPCMBuffer) -> Void)?
 
     private let fftSize = 512
     private var fftSetup: vDSP_DFT_Setup?
@@ -285,6 +287,7 @@ final class AudioCapture {
                 print("Failed to write audio buffer: \(error)")
             }
             appendToTail(convertedBuffer)
+            onConvertedBuffer?(convertedBuffer)
         }
     }
 

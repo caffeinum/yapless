@@ -90,6 +90,18 @@ Three pieces:
 
 The caption label uses `.byTruncatingHead` in a fixed frame: newest words at the right edge, old ones slide off, no reflow.
 
+## live insertion (streaming dictation)
+
+`output.liveInsert` (default **false**) / `--live` types words into the focused field **while you talk**, like Apple Dictation. Engine: FluidAudio (`exact: 0.17.7`, CoreML on the ANE) running `output.liveModel` (default `parakeet-unified-1120ms`; the operator picked it over 320ms on a live A/B, where 320ms garbled a sentence that 1120ms got right).
+
+Pieces:
+- `StreamingDictation` — owns one FluidAudio streaming manager per recording, fed from `AudioCapture.onConvertedBuffer` (16k mono, audio thread) through an AsyncStream. Audio before the model is loaded queues, so no words are lost to load time (0.27s warm; 10-90s the first time on a machine while CoreML compiles). A word is **committed** only once a later word follows it (the last word of a partial can be mid-token, "sc" → "screen"); committed words are append-only, and if a partial ever stops starting with them, committing stops and stop-time reconcile finishes the job. At stop it pads 1s of silence (otherwise the last word or two never decode) and `finish()`es; that text **is** the transcript — the batch engine only runs if streaming failed or came back empty.
+- `LiveInsertion.swift` — `FocusedTarget` is captured in `beginRecording` **before** the overlay exists. `AXInserter` (set `kAXSelectedText`, every write verified by the character-count delta, since web/Electron fields often return success and do nothing) is tried first; a first failed write demotes to `KeystrokeInserter` (Unicode payload on virtual key 0, posted to the HID tap, tagged `0x7961706c` so OverlayWindow's blocking tap passes it). An active IME disables keystrokes. Any focus change stops insertion — it never types into "whatever is focused now". Nothing is ever deleted.
+- At stop: an AX run that is still byte-identical gets swapped for the final text in one write; a keystroke target gets the words after the last ≥1-word anchor appended. Then clipboard, enter and `output.command` run as usual (`OutputHandler.handle(alreadyInserted:)` skips only the paste). Nothing typed live → normal paste.
+- In live mode the overlay is shown with `showRecordingState(activate: false)`: yapless must not take focus from the field it's typing into. The session event tap still catches space/enter/esc. The caption bar shows committed words white and the tentative tail gray; the overlay's sink label shows `live: AX|keys|off`.
+
+`--stream-file <wav>` replays a recording through the same streaming path at real-time pace and prints each commit with its timing — types nothing, opens no mic. Measured: commits land ~0.1-1s behind the audio fed; final arrives 0.24-0.36s after the stream ends.
+
 ## vocabulary / initial prompt
 
 `whisper.vocabulary` (array) and `whisper.prompt` (string) become whisper's **initial prompt** — the sentence the decoder conditions on, which biases spelling toward those words. built in `WhisperEngine.initialPrompt`, sent as the `prompt` multipart field to groq/deepinfra/fireworks, `--prompt` to whisper-cpp. **not** supported by replicate (incredibly-fast-whisper takes no prompt), fal, or whisperkit — those silently ignore it.

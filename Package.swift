@@ -12,12 +12,15 @@ let package = Package(
     dependencies: [
         // Command line argument parsing
         .package(url: "https://github.com/apple/swift-argument-parser.git", from: "1.3.0"),
+        // Streaming ASR (parakeet on CoreML/ANE) for live insertion
+        .package(url: "https://github.com/FluidInference/FluidAudio.git", exact: "0.17.7"),
     ],
     targets: [
         .executableTarget(
             name: "VoiceToText",
             dependencies: [
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
+                .product(name: "FluidAudio", package: "FluidAudio"),
             ],
             path: "Sources/VoiceToText",
             swiftSettings: [
