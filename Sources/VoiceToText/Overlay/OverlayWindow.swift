@@ -101,7 +101,7 @@ final class OverlayWindow: NSWindow {
         hasShadow = false
         isReleasedWhenClosed = false
 
-        // Make window accept key events
+        // Make window accept key events (never activates the app by itself)
         makeKeyAndOrderFront(nil)
 
         setupInputMonitors()
@@ -172,6 +172,11 @@ final class OverlayWindow: NSWindow {
 
                 let window = Unmanaged<OverlayWindow>.fromOpaque(refcon).takeUnretainedValue()
                 let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
+
+                // Our own live-insertion keystrokes must reach the target app.
+                if event.getIntegerValueField(.eventSourceUserData) == KeystrokeInserter.tag {
+                    return Unmanaged.passUnretained(event)
+                }
 
                 // Enter (36) - stop and send
                 if keyCode == 36 {
@@ -384,7 +389,15 @@ final class OverlayWindow: NSWindow {
         animationView?.updateSpectrum(bands)
     }
 
-    func showRecordingState() {
+    /// `activate: false` keeps the user's app frontmost — live insertion types
+    /// into it, so yapless must not take focus. The session event tap still
+    /// catches space/enter/esc either way.
+    func showRecordingState(activate: Bool = true) {
+        guard activate else {
+            orderFrontRegardless()
+            animationView?.startRecordingAnimation()
+            return
+        }
         // Launched from a background process the app is not frontmost, so the
         // overlay never becomes key: keystrokes go elsewhere and SwiftUI
         // throttles the animation until something focuses it. AppController

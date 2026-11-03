@@ -57,6 +57,12 @@ struct VoiceToText: ParsableCommand {
     @Option(name: .long, help: "Shell command handed the transcript on stdin (overrides config output.command)")
     var outputCommand: String?
 
+    @Flag(name: .long, inversion: .prefixedNo, help: "Type confirmed words into the focused field while recording (overrides config output.liveInsert)")
+    var live: Bool?
+
+    @Option(name: .long, help: "Replay a wav through the live streaming model at real-time pace and print commits; types nothing")
+    var streamFile: String?
+
     @Flag(name: .long, help: "Show animation showcase window")
     var showcase = false
 
@@ -160,6 +166,12 @@ struct VoiceToText: ParsableCommand {
                     print("  \(d.name) [\(d.transportLabel), id=\(d.id), \(Int(d.sampleRate))Hz, \(d.channels)ch]\(marker)\(warning)")
                 }
             }
+            throw ExitCode.success
+        }
+
+        if let streamPath = streamFile {
+            let appConfig = try Config.load(from: config ?? Config.defaultPath)
+            try StreamReplay.run(path: streamPath, model: appConfig.output.liveModel)
             throw ExitCode.success
         }
 
@@ -273,6 +285,9 @@ struct VoiceToText: ParsableCommand {
         }
         if let paste = paste {
             finalConfig.output.pasteToActiveApp = paste
+        }
+        if let live = live {
+            finalConfig.output.liveInsert = live
         }
         if let clipboard = clipboard {
             finalConfig.output.copyToClipboard = clipboard

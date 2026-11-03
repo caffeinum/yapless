@@ -205,6 +205,11 @@ struct OutputConfig: Codable {
     /// How long to wait for that command before killing it. yapless exits
     /// straight after, so this is the whole budget the sink gets.
     var commandTimeout: Double = 5.0
+    /// Type confirmed words into the focused field while you talk, from a
+    /// resident streaming model (FluidAudio parakeet-unified). Off by default.
+    var liveInsert: Bool = false
+    /// FluidAudio StreamingModelVariant used by liveInsert.
+    var liveModel: String = "parakeet-unified-1120ms"
 
     init() {}
 
@@ -222,6 +227,8 @@ struct OutputConfig: Codable {
         showNotification = try container.decodeIfPresent(Bool.self, forKey: .showNotification) ?? false
         command = try container.decodeIfPresent(String.self, forKey: .command)
         commandTimeout = try container.decodeIfPresent(Double.self, forKey: .commandTimeout) ?? 5.0
+        liveInsert = try container.decodeIfPresent(Bool.self, forKey: .liveInsert) ?? false
+        liveModel = try container.decodeIfPresent(String.self, forKey: .liveModel) ?? "parakeet-unified-1120ms"
     }
 }
 

@@ -37,6 +37,8 @@ final class AudioCapture {
     /// Fires on main when the first slice arrives — the moment the mic is
     /// actually live, which is what a start cue should mean.
     var onFirstBuffer: (() -> Void)?
+    /// Every converted 16k mono buffer, on the processing queue. Feeds streaming ASR.
+    var onConvertedBuffer: ((AVAudioPCMBuffer) -> Void)?
 
     private let fftSize = 512
     private var fftSetup: vDSP_DFT_Setup?
@@ -424,6 +426,7 @@ final class AudioCapture {
             print("Failed to write audio buffer: \(error)")
         }
         appendToTail(converted)
+        onConvertedBuffer?(converted)
     }
 
     /// The resampler holds a few ms of history; drain it so the end of the

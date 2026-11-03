@@ -16,7 +16,9 @@ final class OutputHandler {
     ///   - text: The transcribed text
     ///   - pressEnter: Whether to press Enter after pasting (to send in chat apps)
     ///   - completion: Called when done
-    func handle(text: String, pressEnter: Bool = false, completion: @escaping () -> Void) {
+    /// - alreadyInserted: live insertion already put the text in the field —
+    ///   skip the paste, keep clipboard, enter and the sink.
+    func handle(text: String, pressEnter: Bool = false, alreadyInserted: Bool = false, completion: @escaping () -> Void) {
         let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
 
         guard !trimmedText.isEmpty else {
@@ -40,7 +42,16 @@ final class OutputHandler {
             self.runOutputCommand(with: trimmedText, completion: completion)
         }
 
-        if config.pasteToActiveApp {
+        if alreadyInserted {
+            if pressEnter {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                    self.simulateEnter()
+                    finish(true)
+                }
+            } else {
+                finish(true)
+            }
+        } else if config.pasteToActiveApp {
             pasteToActiveApp(trimmedText, pressEnter: pressEnter, completion: finish)
         } else {
             // Nothing was attempted, so nothing failed — clipboard-only runs
