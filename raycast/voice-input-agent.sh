@@ -24,5 +24,5 @@
 #
 # `paw dm voice -` reads the message on STDIN. Not argv: dictation is full of apostrophes and
 # newlines, and argv is world-readable in `ps`.
-~/.local/bin/yapless --record --clipboard --no-paste --detach \
+~/.local/bin/yapless --record --clipboard --no-paste --no-live --detach \
   --output-command "$HOME/.local/bin/paw dm voice -"
