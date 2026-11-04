@@ -63,6 +63,9 @@ struct VoiceToText: ParsableCommand {
     @Option(name: .long, help: "Replay a wav through the live streaming model at real-time pace and print commits; types nothing")
     var streamFile: String?
 
+    @Flag(name: .long, help: .hidden)
+    var warmLive = false
+
     @Flag(name: .long, help: "Show animation showcase window")
     var showcase = false
 
@@ -187,6 +190,12 @@ struct VoiceToText: ParsableCommand {
                     print("  \(d.name) [\(d.transportLabel), id=\(d.id), \(Int(d.sampleRate))Hz, \(d.channels)ch]\(marker)\(warning)")
                 }
             }
+            throw ExitCode.success
+        }
+
+        if warmLive {
+            let appConfig = try Config.load(from: config ?? Config.defaultPath)
+            try StreamReplay.warm(model: appConfig.output.liveModel)
             throw ExitCode.success
         }
 

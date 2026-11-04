@@ -454,6 +454,7 @@ final class AppController {
             streaming = nil
             dictation.cancel()
             print("live: model still loading at stop (CoreML recompiling) — batch transcription instead")
+            Self.spawnLiveWarmup()
         }
         if let dictation = streaming {
             streaming = nil
@@ -474,6 +475,27 @@ final class AppController {
             return
         }
         transcribeBatch(audioURL: audioURL)
+    }
+
+    /// Outlives this process: compiling takes longer than any recording.
+    private static func spawnLiveWarmup() {
+        guard let executable = Bundle.main.executablePath else { return }
+        let task = Process()
+        task.executableURL = URL(fileURLWithPath: executable)
+        task.arguments = ["--warm-live"]
+        let log = StorageConfig.dataDirectory.appendingPathComponent("detached.log")
+        if let handle = try? FileHandle(forWritingTo: log) {
+            handle.seekToEndOfFile()
+            task.standardOutput = handle
+            task.standardError = handle
+        }
+        task.standardInput = FileHandle.nullDevice
+        do {
+            try task.run()
+            print("live: warming the model in the background (pid \(task.processIdentifier))")
+        } catch {
+            print("live: could not start warm-up: \(error.localizedDescription)")
+        }
     }
 
     private func transcribeBatch(audioURL: URL) {

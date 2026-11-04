@@ -44,4 +44,27 @@ enum StreamReplay {
         while !done { RunLoop.main.run(until: Date().addingTimeInterval(0.05)) }
         print(try final!.get())
     }
+
+    /// `--warm-live`: load the streaming model and exit, so CoreML's compiled
+    /// cache is hot for the next recording. Compiling takes 40-140s and a
+    /// recording process exits long before that, so without a separate warm-up
+    /// a cold cache would stay cold forever. One warm-up at a time.
+    static func warm(model: String) throws {
+        let path = StorageConfig.dataDirectory.appendingPathComponent("warm-live.lock").path
+        let fd = open(path, O_RDWR | O_CREAT, 0o644)
+        guard fd >= 0 else { throw NSError(domain: "yapless.live", code: 3, userInfo: [NSLocalizedDescriptionKey: "cannot open \(path)"]) }
+        guard flock(fd, LOCK_EX | LOCK_NB) == 0 else {
+            print("live: warm-up already running")
+            return
+        }
+        let dictation = try StreamingDictation(modelName: model)
+        var done = false
+        dictation.start()
+        dictation.finish { result in
+            if case .failure(let error) = result { print("live: warm-up failed: \(error.localizedDescription)") }
+            done = true
+        }
+        while !done { RunLoop.main.run(until: Date().addingTimeInterval(0.1)) }
+        print("live: warm-up done")
+    }
 }
