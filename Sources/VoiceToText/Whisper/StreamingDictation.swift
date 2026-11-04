@@ -21,6 +21,9 @@ final class StreamingDictation {
     private var worker: Task<String, Error>?
     private var committed: [String] = []
     private var diverged = false
+    /// Main queue. False until the model is loaded — after a CoreML cache
+    /// eviction that takes 1-2 minutes, which nobody should wait for at stop.
+    private(set) var isLoaded = false
 
     init(modelName: String) throws {
         guard let variant = StreamingModelVariant(rawValue: modelName) else {
@@ -42,6 +45,7 @@ final class StreamingDictation {
             let t0 = Date()
             try await manager.loadModels()
             print(String(format: "live: %@ loaded in %.2fs", name, Date().timeIntervalSince(t0)))
+            DispatchQueue.main.async { self?.isLoaded = true }
 
             var last = ""
             for await buffer in stream {

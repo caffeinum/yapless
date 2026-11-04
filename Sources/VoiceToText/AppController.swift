@@ -450,6 +450,11 @@ final class AppController {
 
         // Streaming already decoded everything but the last ~second; its final
         // is the transcript. The batch engine only runs if streaming failed.
+        if let dictation = streaming, !dictation.isLoaded {
+            streaming = nil
+            dictation.cancel()
+            print("live: model still loading at stop (CoreML recompiling) — batch transcription instead")
+        }
         if let dictation = streaming {
             streaming = nil
             dictation.finish { [weak self] result in

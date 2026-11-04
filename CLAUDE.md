@@ -126,6 +126,8 @@ Pieces:
 - At stop: an AX run that is still byte-identical gets swapped for the final text in one write; a keystroke target gets the words after the last ≥1-word anchor appended. Then clipboard, enter and `output.command` run as usual (`OutputHandler.handle(alreadyInserted:)` skips only the paste). Nothing typed live → normal paste.
 - In live mode the overlay is shown with `showRecordingState(activate: false)`: yapless must not take focus from the field it's typing into. The session event tap still catches space/enter/esc. No live indicator and no caption bar while a target is being typed into — the words in the field are the feedback, and a caption bar showed them twice. The caption bar (committed white, tentative gray) only appears when there is no target and the text will be pasted at the end; which inserter is in use goes to the log only.
 
+**Cold model at stop → batch.** macOS can evict CoreML's compiled cache; the next loads then took 55-140s (2026-11-03, three overlapping runs each recompiling), and stop waited on `finish()` the whole time — the overlay sat in processing. Now if `StreamingDictation.isLoaded` is still false at stop, the stream is cancelled and the batch engine transcribes the wav instead.
+
 `--stream-file <wav>` replays a recording through the same streaming path at real-time pace and prints each commit with its timing — types nothing, opens no mic. Measured: commits land ~0.1-1s behind the audio fed; final arrives 0.24-0.36s after the stream ends.
 
 ## vocabulary / initial prompt
