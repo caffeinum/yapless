@@ -134,6 +134,10 @@ Pieces:
 
 `whisper.vocabulary` (array) and `whisper.prompt` (string) become whisper's **initial prompt** — the sentence the decoder conditions on, which biases spelling toward those words. built in `WhisperEngine.initialPrompt`, sent as the `prompt` multipart field to groq/deepinfra/fireworks, `--prompt` to whisper-cpp. **not** supported by replicate (incredibly-fast-whisper takes no prompt), fal, or whisperkit — those silently ignore it.
 
+## single instance
+
+The record path takes `flock(LOCK_EX|LOCK_NB)` on `~/.local/share/yapless/recording.lock` (holds the pid) before anything else; a second run prints "another yapless is already recording" and exits. Observed 2026-11-03: the hotkey launched two runs 120ms apart, both recorded, and live insert typed every word twice ("WasWas it because…"); overlapping runs also each recompiled the CoreML model at once. The kernel releases the lock on any exit, so nothing stale survives a crash. `--transcribe`, `--stream-file`, `--list-inputs` and the `--detach` parent don't take it.
+
 ## detached runs
 
 `--detach` re-spawns the binary via `posix_spawn` with `POSIX_SPAWN_SETSID` (own session) and exits immediately, so a launcher that times out — Raycast kills a script command at 60s — can't take the recording down with it. child stdio goes to `~/.local/share/yapless/detached.log`, not the launcher's pipes: writing to a closed pipe would SIGPIPE the run mid-transcription (observed). `raycast/*.sh` use it.

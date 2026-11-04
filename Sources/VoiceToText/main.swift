@@ -129,6 +129,27 @@ struct VoiceToText: ParsableCommand {
         }
     }
 
+    /// One recording at a time. A hotkey that fires twice (observed: two runs
+    /// 120ms apart) otherwise records twice and types every word twice. The
+    /// fd stays open for the life of the process; the kernel drops the lock on
+    /// exit, crash or kill -9, so there is no stale lock to clean up.
+    private func claimRecordingLock() throws {
+        try? FileManager.default.createDirectory(at: StorageConfig.dataDirectory, withIntermediateDirectories: true)
+        let path = StorageConfig.dataDirectory.appendingPathComponent("recording.lock").path
+        let fd = open(path, O_RDWR | O_CREAT, 0o644)
+        guard fd >= 0 else {
+            throw ValidationError("cannot open \(path): \(String(cString: strerror(errno)))")
+        }
+        guard flock(fd, LOCK_EX | LOCK_NB) == 0 else {
+            let holder = (try? String(contentsOfFile: path, encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "?"
+            print("another yapless is already recording (pid \(holder)) — exiting")
+            throw ExitCode.failure
+        }
+        ftruncate(fd, 0)
+        let pid = "\(getpid())\n"
+        _ = pid.withCString { write(fd, $0, strlen($0)) }
+    }
+
     /// Apply the `--backend` CLI flag over whatever the config file specified.
     private func applyBackendOverride(_ appConfig: inout Config) {
         guard let backend = backend else { return }
@@ -261,6 +282,8 @@ struct VoiceToText: ParsableCommand {
             NSApplication.shared.run()
             return
         }
+
+        try claimRecordingLock()
 
         // Load configuration
         let configPath = config ?? Config.defaultPath
