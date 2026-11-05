@@ -57,6 +57,7 @@ enum StreamReplay {
             print("live: warm-up already running")
             return
         }
+        print("live: warm-up started (pid \(getpid()))")
         let dictation = try StreamingDictation(modelName: model)
         var done = false
         dictation.start()

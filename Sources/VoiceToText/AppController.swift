@@ -477,24 +477,33 @@ final class AppController {
         transcribeBatch(audioURL: audioURL)
     }
 
-    /// Outlives this process: compiling takes longer than any recording.
+    /// Outlives this process: compiling takes longer than any recording. Own
+    /// session, like --detach, so nothing that reaps this run takes it along.
     private static func spawnLiveWarmup() {
         guard let executable = Bundle.main.executablePath else { return }
-        let task = Process()
-        task.executableURL = URL(fileURLWithPath: executable)
-        task.arguments = ["--warm-live"]
-        let log = StorageConfig.dataDirectory.appendingPathComponent("detached.log")
-        if let handle = try? FileHandle(forWritingTo: log) {
-            handle.seekToEndOfFile()
-            task.standardOutput = handle
-            task.standardError = handle
-        }
-        task.standardInput = FileHandle.nullDevice
-        do {
-            try task.run()
-            print("live: warming the model in the background (pid \(task.processIdentifier))")
-        } catch {
-            print("live: could not start warm-up: \(error.localizedDescription)")
+        let log = StorageConfig.dataDirectory.appendingPathComponent("detached.log").path
+
+        var attr: posix_spawnattr_t?
+        posix_spawnattr_init(&attr)
+        defer { posix_spawnattr_destroy(&attr) }
+        posix_spawnattr_setflags(&attr, Int16(POSIX_SPAWN_SETSID | POSIX_SPAWN_CLOEXEC_DEFAULT))
+        posix_spawnattr_set_qos_class_np(&attr, QOS_CLASS_UTILITY)
+
+        var actions: posix_spawn_file_actions_t?
+        posix_spawn_file_actions_init(&actions)
+        defer { posix_spawn_file_actions_destroy(&actions) }
+        posix_spawn_file_actions_addopen(&actions, 0, "/dev/null", O_RDONLY, 0)
+        posix_spawn_file_actions_addopen(&actions, 1, log, O_WRONLY | O_CREAT | O_APPEND, 0o644)
+        posix_spawn_file_actions_adddup2(&actions, 1, 2)
+
+        var argv: [UnsafeMutablePointer<CChar>?] = [strdup(executable), strdup("--warm-live"), nil]
+        defer { argv.forEach { free($0) } }
+        var pid: pid_t = 0
+        let status = posix_spawn(&pid, executable, &actions, &attr, argv, environ)
+        if status == 0 {
+            print("live: warming the model in the background (pid \(pid))")
+        } else {
+            print("live: could not start warm-up: posix_spawn \(status)")
         }
     }
 
