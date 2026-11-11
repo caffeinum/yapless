@@ -98,6 +98,9 @@ final class AXInserter: LiveInserter {
     let target: FocusedTarget
     private(set) var insertedStart: Int?
     private(set) var insertedLength = 0
+    /// The last write landed only after the immediate check said it hadn't.
+    private(set) var appliedLate = false
+    static let lateWriteGrace: TimeInterval = 0.5
     var lastError: InsertError?
 
     init?(target: FocusedTarget) {
@@ -113,7 +116,11 @@ final class AXInserter: LiveInserter {
             lastError = .notAccepted("value unreadable"); return false
         }
         let status = AXUIElementSetAttributeValue(target.element, kAXSelectedTextAttribute as CFString, text as CFString)
-        let delta = (target.valueLength ?? before) - before
+        var delta = (target.valueLength ?? before) - before
+        if status == .success, delta != text.utf16.count {
+            delta = awaitDelta(before: before, expected: text.utf16.count)
+            appliedLate = delta == text.utf16.count
+        }
         guard status == .success, delta == text.utf16.count else {
             lastError = .notAccepted("AX status \(status.rawValue), length delta \(delta) for \(text.utf16.count)")
             return false
@@ -121,6 +128,20 @@ final class AXInserter: LiveInserter {
         if insertedStart == nil { insertedStart = caret.location }
         insertedLength += delta
         return true
+    }
+
+    /// Some targets (cmux, a terminal) report .success and apply the write a
+    /// beat later: the immediate re-read shows delta 0, and demoting to
+    /// keystrokes then typed the same words a second time (2026-11-10).
+    private func awaitDelta(before: Int, expected: Int) -> Int {
+        let deadline = Date().addingTimeInterval(Self.lateWriteGrace)
+        var delta = 0
+        while Date() < deadline {
+            usleep(25_000)
+            delta = (target.valueLength ?? before) - before
+            if delta == expected { break }
+        }
+        return delta
     }
 
     /// Stop-time reconcile: swap our whole inserted run for the final
@@ -233,6 +254,13 @@ final class LiveInsertionSession {
             let text = (inserted.isEmpty ? (needsLeadingSpace ? " " : "") : " ") + words.joined(separator: " ")
             if inserter.append(text) {
                 inserted += words
+                // Verification is unreliable on a target that applies AX
+                // writes late; keystrokes don't need it.
+                if let ax = inserter as? AXInserter, ax.appliedLate,
+                   let typer = try? KeystrokeInserter(target: target) {
+                    print("AX write applied late — switched to keystrokes for the rest")
+                    self.inserter = typer
+                }
                 return
             }
             if let ax = inserter as? AXInserter, ax.insertedStart == nil,
