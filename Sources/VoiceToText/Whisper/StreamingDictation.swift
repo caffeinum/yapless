@@ -48,13 +48,23 @@ final class StreamingDictation {
             DispatchQueue.main.async { self?.isLoaded = true }
 
             var last = ""
+            var lastChange = Date()
+            var settled = false
             for await buffer in stream {
                 try await manager.appendAudio(buffer)
                 try await manager.processBufferedAudio()
                 let partial = await manager.getPartialTranscript()
                 if partial != last {
                     last = partial
-                    self?.handle(partial: partial)
+                    lastChange = Date()
+                    settled = false
+                    self?.handle(partial: partial, includeLast: false)
+                } else if !settled, Date().timeIntervalSince(lastChange) >= Self.settleSeconds {
+                    // A whole model step went by without the last word changing,
+                    // so it is not a fragment: type it instead of waiting for
+                    // the next word or for stop.
+                    settled = true
+                    self?.handle(partial: partial, includeLast: true)
                 }
             }
 
@@ -92,11 +102,15 @@ final class StreamingDictation {
         worker?.cancel()
     }
 
-    private func handle(partial: String) {
+    /// Longer than one 1120ms model step, so an unchanged partial means the
+    /// model has seen audio past the last word.
+    static let settleSeconds: TimeInterval = 1.5
+
+    private func handle(partial: String, includeLast: Bool) {
         DispatchQueue.main.async { [self] in
             let words = partial.split(whereSeparator: \.isWhitespace).map(String.init)
             if !diverged {
-                switch Self.newlyCommitted(words: words, committed: committed) {
+                switch Self.newlyCommitted(words: words, committed: committed, includeLast: includeLast) {
                 case .some(let fresh) where !fresh.isEmpty:
                     committed += fresh
                     onCommit?(fresh)
@@ -114,10 +128,10 @@ final class StreamingDictation {
         }
     }
 
-    /// Words of `words` past `committed`, holding back the last one. nil when
-    /// the partial no longer starts with what was committed.
-    static func newlyCommitted(words: [String], committed: [String]) -> [String]? {
-        let stable = words.dropLast()
+    /// Words of `words` past `committed`, holding back the last one unless
+    /// `includeLast`. nil when the partial no longer starts with what was committed.
+    static func newlyCommitted(words: [String], committed: [String], includeLast: Bool = false) -> [String]? {
+        let stable = includeLast ? words[...] : words.dropLast()
         guard stable.count >= committed.count else {
             return zip(stable, committed).allSatisfy { normalize($0) == normalize($1) } ? [] : nil
         }
