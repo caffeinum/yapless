@@ -11,6 +11,8 @@ import Carbon.HIToolbox
 /// is focused now" — so a focus change mid-dictation stops insertion instead of
 /// typing into the wrong place.
 struct FocusedTarget {
+    static let axTimeout: Float = 1.0
+
     let pid: pid_t
     let bundleID: String?
     let element: AXUIElement
@@ -18,6 +20,9 @@ struct FocusedTarget {
     static func capture() -> FocusedTarget? {
         guard AXIsProcessTrusted(),
               let app = NSWorkspace.shared.frontmostApplication else { return nil }
+        // The default is ~6s per call, and a busy app can stall every call that
+        // long; at stop that held the field fix-up — and the run — for 5+ min.
+        AXUIElementSetMessagingTimeout(AXUIElementCreateSystemWide(), axTimeout)
         let appElement = AXUIElementCreateApplication(app.processIdentifier)
         enableWebAccessibility(appElement)
 

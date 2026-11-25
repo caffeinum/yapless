@@ -7,6 +7,7 @@ final class OverlayWindow: NSWindow {
     private var animationView: AnimationView?
     private var micLabel: NSTextField?
     private var sinkLabel: NSTextField?
+    private var closeButton: CloseButtonView?
     private var keyMonitor: Any?
     private var clickMonitor: Any?
     private var eventTap: CFMachPort?
@@ -31,6 +32,7 @@ final class OverlayWindow: NSWindow {
 
         setupWindow()
         setupAnimationView()
+        setupCloseButton()
     }
 
     private static func calculateFrame(for config: AnimationConfig) -> NSRect {
@@ -114,7 +116,47 @@ final class OverlayWindow: NSWindow {
     override func becomeFirstResponder() -> Bool { true }
 
     override func mouseDown(with event: NSEvent) {
+        if hitsCloseButton(event) { onCancelRequested?(); return }
         onStopRequested?(false)  // click = just paste
+    }
+
+    // MARK: - Close button (pill styles)
+
+    /// An escape hatch that works in every state, processing included: Esc
+    /// stops working once the run reaches the paste step, and a stuck run
+    /// (an unresponsive target app, 2026-11-24) otherwise had no way out.
+    private func setupCloseButton() {
+        guard animationConfig.style == .pill || animationConfig.style == .equalizer,
+              let contentView else { return }
+        let bounds = contentView.bounds
+        let capsuleHeight = PillMetrics.capsuleHeight(inWindowHeight: bounds.height)
+        let margin = capsuleHeight * PillMetrics.marginRatio
+        let diameter = (capsuleHeight * 0.62).rounded()
+        let button = CloseButtonView(frame: NSRect(
+            x: margin - diameter / 2, y: bounds.midY + capsuleHeight / 2 - diameter * 0.75,
+            width: diameter, height: diameter))
+        button.alphaValue = 0
+        contentView.addSubview(button, positioned: .above, relativeTo: nil)
+        contentView.addTrackingArea(NSTrackingArea(
+            rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+            owner: self, userInfo: nil))
+        closeButton = button
+    }
+
+    private func hitsCloseButton(_ event: NSEvent) -> Bool {
+        guard event.window === self, let button = closeButton, button.alphaValue > 0 else { return false }
+        return button.frame.contains(button.superview?.convert(event.locationInWindow, from: nil) ?? .zero)
+    }
+
+    override func mouseEntered(with event: NSEvent) { setCloseButtonVisible(true) }
+    override func mouseExited(with event: NSEvent) { setCloseButtonVisible(false) }
+
+    private func setCloseButtonVisible(_ visible: Bool) {
+        guard let closeButton else { return }
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.12
+            closeButton.animator().alphaValue = visible ? 1 : 0
+        }
     }
 
     override func keyDown(with event: NSEvent) {
@@ -150,7 +192,13 @@ final class OverlayWindow: NSWindow {
         }
 
         NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { [weak self] event in
-            self?.onStopRequested?(false)
+            guard let self else { return event }
+            if self.hitsCloseButton(event) {
+                print("Close button → cancel")
+                self.onCancelRequested?()
+                return nil
+            }
+            self.onStopRequested?(false)
             return event
         }
     }
@@ -429,7 +477,8 @@ final class OverlayWindow: NSWindow {
         }
         self.eventTap = nil
 
-        ignoresMouseEvents = true
+        // The close button must stay clickable while processing.
+        ignoresMouseEvents = closeButton == nil
         resignKey()
 
         setupEscOnlyMonitor()
@@ -507,6 +556,35 @@ final class OverlayWindow: NSWindow {
             y: mouseLocation.y - size.height / 2
         )
         setFrameOrigin(newOrigin)
+    }
+}
+
+// MARK: - Close button
+
+/// Small dark ⊗ badge on the pill's left end. Clicks are routed by
+/// OverlayWindow (its mouse monitors see them first), not handled here.
+final class CloseButtonView: NSView {
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let circle = bounds.insetBy(dx: 1, dy: 1)
+        NSColor.black.withAlphaComponent(0.78).setFill()
+        NSBezierPath(ovalIn: circle).fill()
+        NSColor.white.withAlphaComponent(0.35).setStroke()
+        let rim = NSBezierPath(ovalIn: circle)
+        rim.lineWidth = 1
+        rim.stroke()
+
+        let inset = bounds.width * 0.32
+        let cross = NSBezierPath()
+        cross.move(to: NSPoint(x: inset, y: inset))
+        cross.line(to: NSPoint(x: bounds.width - inset, y: bounds.height - inset))
+        cross.move(to: NSPoint(x: inset, y: bounds.height - inset))
+        cross.line(to: NSPoint(x: bounds.width - inset, y: inset))
+        cross.lineWidth = max(1.5, bounds.width * 0.1)
+        cross.lineCapStyle = .round
+        NSColor.white.setStroke()
+        cross.stroke()
     }
 }
 

@@ -554,19 +554,34 @@ final class AppController {
 
         guard let live = liveInsertion else { return deliver(text, alreadyInserted: false) }
         liveInsertion = nil
+        var settled = false
         live.finish(final: text) { [weak self] handled in
             DispatchQueue.main.async {
+                guard !settled else { return print("live: field fix-up finished after the timeout — ignored") }
+                settled = true
                 print(handled ? "live: field reconciled with the final transcript" : "live: nothing typed live — pasting")
                 self?.deliver(text, alreadyInserted: handled)
             }
         }
+        // The fix-up talks to the target app over AX; an app that stops
+        // answering held runs in "processing" for 5+ min (2026-11-24). Words
+        // already typed stay typed — deliver to the clipboard and exit, never
+        // paste on top of a field in an unknown state.
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.liveFinishTimeout) { [weak self] in
+            guard !settled else { return }
+            settled = true
+            print("live: field fix-up timed out after \(Self.liveFinishTimeout)s — transcript on the clipboard only, no enter")
+            self?.deliver(text, alreadyInserted: true, pressEnter: false)
+        }
     }
 
-    private func deliver(_ text: String, alreadyInserted: Bool) {
+    static let liveFinishTimeout: TimeInterval = 3
+
+    private func deliver(_ text: String, alreadyInserted: Bool, pressEnter: Bool? = nil) {
         // Small delay to let the app activate
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
             guard let self = self else { return }
-            self.outputHandler.handle(text: text, pressEnter: self.shouldPressEnterAfterPaste,
+            self.outputHandler.handle(text: text, pressEnter: pressEnter ?? self.shouldPressEnterAfterPaste,
                                       alreadyInserted: alreadyInserted) {
                 self.hideOverlay()
 
