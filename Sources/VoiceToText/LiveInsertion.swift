@@ -227,6 +227,11 @@ final class LiveInsertionSession {
     private(set) var inserted: [String] = []
     private(set) var stopReason: String?
     private let queue = DispatchQueue(label: "yapless.live-insert")
+    private let typingLock = NSLock()
+    private var typingStarted = false
+    /// Whether any write into the field has begun, readable while the queue is
+    /// stuck in one. False means the field is untouched, so pasting is safe.
+    var hasStartedTyping: Bool { typingLock.withLock { typingStarted } }
     /// Whether the caret sits right after a non-space character, so the first
     /// word needs a separating space. Read once, before anything is typed.
     private let needsLeadingSpace: Bool
@@ -257,13 +262,21 @@ final class LiveInsertionSession {
         queue.async { [self] in
             guard let inserter, !words.isEmpty else { return }
             let text = (inserted.isEmpty ? (needsLeadingSpace ? " " : "") : " ") + words.joined(separator: " ")
+            typingLock.withLock { typingStarted = true }
+            let began = Date()
+            defer {
+                let took = Date().timeIntervalSince(began)
+                if took > 0.5 { print(String(format: "live: a write took %.1fs — target slow to answer AX", took)) }
+            }
             if inserter.append(text) {
                 inserted += words
                 // Verification is unreliable on a target that applies AX
-                // writes late; keystrokes don't need it.
-                if let ax = inserter as? AXInserter, ax.appliedLate,
+                // writes late, and a target slow to answer AX stalls every
+                // later write and the stop-time fix-up; keystrokes need neither.
+                let slow = Date().timeIntervalSince(began) > 0.5
+                if let ax = inserter as? AXInserter, ax.appliedLate || slow,
                    let typer = try? KeystrokeInserter(target: target) {
-                    print("AX write applied late — switched to keystrokes for the rest")
+                    print("AX write applied late or slowly — switched to keystrokes for the rest")
                     self.inserter = typer
                 }
                 return

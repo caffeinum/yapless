@@ -19,6 +19,7 @@ final class AppController {
 
     private var isRecording = false
     private var shouldPressEnterAfterPaste = false
+    private var discarded = false
     private var currentRecordingURL: URL?
     private var recordingTimestamp: String?
 
@@ -293,7 +294,8 @@ final class AppController {
             self?.stopRecording(pressEnter: pressEnter)
         }
         overlayWindow?.onCancelRequested = { [weak self] in
-            self?.cancelTranscription()
+            guard let self else { return }
+            self.isRecording ? self.discardRecording() : self.cancelTranscription()
         }
         overlayWindow?.showRecordingState(activate: streaming == nil)
 
@@ -307,6 +309,25 @@ final class AppController {
         } else {
             overlayWindow?.setMicLabel("mic: <unknown>")
         }
+    }
+
+    /// Esc / the close button while recording: stop cleanly (the wav header
+    /// gets finalized, so the audio stays recoverable with --transcribe) and
+    /// deliver nothing. Words live insert already typed stay — nothing is
+    /// ever deleted — but typing stops at once.
+    private func discardRecording() {
+        guard isRecording else { return }
+        print("Recording discarded — nothing will be typed, pasted or sent")
+        discarded = true
+        isRecording = false
+        liveInsertion = nil
+        streaming?.cancel()
+        streaming = nil
+        captioner?.stop()
+        captioner = nil
+        captionWindow?.close()
+        captionWindow = nil
+        audioCapture.stopRecording()
     }
 
     private func cancelTranscription() {
@@ -432,6 +453,10 @@ final class AppController {
 
     private func processRecording(at audioURL: URL) {
         currentRecordingURL = audioURL
+        if discarded {
+            print("Discarded recording kept at \(audioURL.path)")
+            return cancelTranscription()
+        }
 
         // Logged on every run, not just refusals: tuning the threshold later
         // needs the distribution of accepted recordings too.
@@ -564,12 +589,18 @@ final class AppController {
             }
         }
         // The fix-up talks to the target app over AX; an app that stops
-        // answering held runs in "processing" for 5+ min (2026-11-24). Words
-        // already typed stay typed — deliver to the clipboard and exit, never
-        // paste on top of a field in an unknown state.
+        // answering held runs in "processing" for 5+ min (2026-11-24). If
+        // nothing was ever written the field is untouched: paste as usual
+        // (clipboard-only here left nothing typed at all, 2026-11-27).
+        // Otherwise the field is in an unknown state — clipboard only, no
+        // enter, never paste on top of it.
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.liveFinishTimeout) { [weak self] in
             guard !settled else { return }
             settled = true
+            if !live.hasStartedTyping {
+                print("live: field fix-up timed out after \(Self.liveFinishTimeout)s, nothing was typed — pasting")
+                return self?.deliver(text, alreadyInserted: false) ?? ()
+            }
             print("live: field fix-up timed out after \(Self.liveFinishTimeout)s — transcript on the clipboard only, no enter")
             self?.deliver(text, alreadyInserted: true, pressEnter: false)
         }

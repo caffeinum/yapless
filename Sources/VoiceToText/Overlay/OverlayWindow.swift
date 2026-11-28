@@ -163,8 +163,10 @@ final class OverlayWindow: NSWindow {
         // enter (36) or space (49) or escape (53)
         if event.keyCode == 36 {
             onStopRequested?(true)  // enter = paste + send
-        } else if event.keyCode == 49 || event.keyCode == 53 {
-            onStopRequested?(false)  // space/escape = just paste
+        } else if event.keyCode == 49 {
+            onStopRequested?(false)  // space = just paste
+        } else if event.keyCode == 53 {
+            onCancelRequested?()  // escape = discard
         } else {
             super.keyDown(with: event)
         }
@@ -184,8 +186,11 @@ final class OverlayWindow: NSWindow {
             if event.keyCode == 36 {
                 self?.onStopRequested?(true)  // enter = paste + send
                 return nil
-            } else if event.keyCode == 49 || event.keyCode == 53 {
-                self?.onStopRequested?(false)  // space/escape = just paste
+            } else if event.keyCode == 49 {
+                self?.onStopRequested?(false)  // space = just paste
+                return nil
+            } else if event.keyCode == 53 {
+                self?.onCancelRequested?()  // escape = discard
                 return nil
             }
             return event
@@ -235,11 +240,20 @@ final class OverlayWindow: NSWindow {
                     return nil
                 }
 
-                // Space (49), Escape (53) - stop without send
-                if keyCode == 49 || keyCode == 53 {
-                    print("Event tap: keyCode \(keyCode) → stop")
+                // Space (49) - stop without send
+                if keyCode == 49 {
+                    print("Event tap: Space (49) → stop")
                     DispatchQueue.main.async {
                         window.onStopRequested?(false)
+                    }
+                    return nil
+                }
+
+                // Escape (53) - discard
+                if keyCode == 53 {
+                    print("Event tap: Escape (53) → discard")
+                    DispatchQueue.main.async {
+                        window.onCancelRequested?()
                     }
                     return nil
                 }
